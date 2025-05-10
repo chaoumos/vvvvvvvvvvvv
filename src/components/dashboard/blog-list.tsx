@@ -48,30 +48,30 @@ export function BlogList() {
     if (!user) {
       setIsLoading(false);
       setBlogs([]);
+      setError(null); // Clear any previous error if user logs out/is not available
       return;
     }
 
     setIsLoading(true);
+    setError(null); // Clear previous errors when re-fetching
+
     const unsubscribe = streamUserBlogs(
       user.uid,
-      (fetchedBlogs) => {
+      (fetchedBlogs) => { // onUpdate callback
         setBlogs(fetchedBlogs);
         setIsLoading(false);
-        setError(null);
+        setError(null); // Clear error on successful data fetch
       },
-      // (err) => { // onSnapshot's error callback is the third argument
-      //   console.error("Error fetching blogs:", err);
-      //   setError("Failed to load blogs. Please try again later.");
-      //   setIsLoading(false);
-      // }
+      (err) => { // onError callback
+        console.error("Error in BlogList from streamUserBlogs:", err);
+        setError(`Failed to load blogs: ${err.message || "Please try again later."}`);
+        setIsLoading(false);
+        setBlogs([]); // Clear blogs on error to prevent showing stale data
+      }
     );
-    // Workaround for onSnapshot error handling for now, as it's not directly in the type.
-    // This requires modifying streamUserBlogs to handle its own try/catch for the initial getDocs if used,
-    // or rely on the onSnapshot error argument for streaming errors.
-    // For now, we assume streamUserBlogs handles internal errors gracefully or the callback itself can set error state.
 
-    return () => unsubscribe();
-  }, [user]);
+    return () => unsubscribe(); // Cleanup subscription on component unmount
+  }, [user]); // Re-run effect if user changes
 
   if (isLoading) {
     return <BlogListSkeleton />;
@@ -80,7 +80,7 @@ export function BlogList() {
   if (error) {
     return (
       <Alert variant="destructive">
-        <AlertTitle>Error</AlertTitle>
+        <AlertTitle>Error Loading Blogs</AlertTitle>
         <AlertDescription>{error}</AlertDescription>
       </Alert>
     );

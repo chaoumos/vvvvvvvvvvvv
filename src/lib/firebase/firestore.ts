@@ -25,7 +25,7 @@ export async function addBlog(userId: string, blogData: Omit<Blog, 'id' | 'userI
       ...blogData,
       userId,
       status: 'pending' as BlogStatus,
-      createdAt: Timestamp.now(),
+      createdAt: Timestamp.now(), // Firestore Timestamp
     });
     return docRef.id;
   } catch (error) {
@@ -43,7 +43,16 @@ export async function getUserBlogs(userId: string): Promise<Blog[]> {
       orderBy('createdAt', 'desc')
     );
     const querySnapshot = await getDocs(q);
-    return querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Blog));
+    return querySnapshot.docs.map(docSnapshot => {
+      const data = docSnapshot.data();
+      const createdAtTimestamp = data.createdAt as Timestamp;
+      return {
+        id: docSnapshot.id,
+        ...data,
+        // Convert Firestore Timestamp to milliseconds for consistency with Blog type
+        createdAt: createdAtTimestamp?.toMillis ? createdAtTimestamp.toMillis() : (data.createdAt || 0),
+      } as Blog;
+    });
   } catch (error) {
     console.error('Error fetching user blogs:', error);
     throw new Error('Failed to fetch user blogs.');
@@ -51,7 +60,11 @@ export async function getUserBlogs(userId: string): Promise<Blog[]> {
 }
 
 // Stream user blogs
-export function streamUserBlogs(userId: string, callback: (blogs: Blog[]) => void): Unsubscribe {
+export function streamUserBlogs(
+  userId: string,
+  onUpdate: (blogs: Blog[]) => void,
+  onError: (error: Error) => void
+): Unsubscribe {
   const q = query(
     collection(db, BLOGS_COLLECTION),
     where('userId', '==', userId),
@@ -59,11 +72,21 @@ export function streamUserBlogs(userId: string, callback: (blogs: Blog[]) => voi
   );
 
   const unsubscribe = onSnapshot(q, (querySnapshot) => {
-    const blogs = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Blog));
-    callback(blogs);
-  }, (error) => {
-    console.error("Error streaming user blogs:", error);
-    // You might want to propagate this error to the UI
+    const blogs = querySnapshot.docs.map(docSnapshot => {
+      const data = docSnapshot.data();
+      const createdAtTimestamp = data.createdAt as Timestamp;
+      return {
+        id: docSnapshot.id,
+        ...data,
+        // Convert Firestore Timestamp to milliseconds
+        createdAt: createdAtTimestamp?.toMillis ? createdAtTimestamp.toMillis() : (data.createdAt || 0),
+      } as Blog;
+    });
+    onUpdate(blogs);
+  }, (err) => { // Firebase onSnapshot error callback
+    console.error("Error streaming user blogs from Firestore:", err);
+    // Pass a standard Error object to the onError callback
+    onError(new Error(err.message || 'An unknown error occurred while streaming blogs.'));
   });
 
   return unsubscribe;
@@ -92,30 +115,69 @@ export async function deleteBlog(blogId: string): Promise<void> {
   }
 }
 
-// Simulate backend processing for blog creation
-// In a real app, this would be replaced by Cloud Function triggers or calls.
-export async function simulateBlogCreationProcess(blogId: string, siteName: string) {
-  const randomDelay = (min = 1000, max = 3000) => new Promise(res => setTimeout(res, Math.random() * (max - min) + min));
-
+/**
+ * Handles the actual backend processing for blog creation, including GitHub repo creation.
+ * In a real app, this would ideally be triggered by a Cloud Function or similar server-side process
+ * reacting to the Firestore 'pending' status, to securely handle the PAT.
+ * For demonstration purposes, this is implemented here.
+ */
+export async function simulateBlogCreationProcess(blogId: string, siteName: string): Promise<void> {
   try {
-    await updateBlogStatus(blogId, 'creating_repo');
-    await randomDelay();
-    const githubRepoUrl = `https://github.com/user/${siteName}`; // Placeholder
-    await updateBlogStatus(blogId, 'configuring_theme', { githubRepoUrl });
-    await randomDelay();
-    await updateBlogStatus(blogId, 'deploying');
-    await randomDelay(3000, 6000); // Longer delay for deployment
+    await updateBlogStatus(blogId, 'creating_repo'); // Update status to reflect repo creation attempt
+
+    // Retrieve blog data to get the PAT
+    // Note: Querying by '__name__' is less efficient. If possible, get the full doc directly if you have path.
+    // However, for this simulation structure, this query is used.
+    const blogCollectionRef = collection(db, BLOGS_COLLECTION);
+    const blogDocumentRef = doc(blogCollectionRef, blogId);
     
-    // Simulate a chance of failure
-    if (Math.random() < 0.1) { // 10% chance of failure
-        await updateBlogStatus(blogId, 'failed', { error: 'Simulated deployment failure.'});
-    } else {
-        const liveUrl = `https://${siteName.toLowerCase().replace(/\s+/g, '-')}.example.dev`; // Placeholder
-        await updateBlogStatus(blogId, 'live', { liveUrl });
+    // To get the document, you'd typically use getDoc if you have the ref.
+    // The existing code uses a query, which is unusual for fetching a single doc by ID.
+    // Let's adjust to a more standard getDoc if possible, or keep if structure demands.
+    // For now, will keep the query to match existing, but it's a point of potential optimization.
+    const blogQuery = query(collection(db, BLOGS_COLLECTION), where('__name__', '==', blogId));
+    const blogDocSnapshot = await getDocs(blogQuery);
+
+    if (blogDocSnapshot.empty) {
+      throw new Error(`Blog with ID ${blogId} not found.`);
+    }
+    const blogData = blogDocSnapshot.docs[0].data() as Blog;
+    const githubPat = blogData.pat;
+
+    if (!githubPat) {
+        await updateBlogStatus(blogId, 'failed', { error: 'GitHub Personal Access Token is missing. Cannot create repository.' });
+        return;
     }
 
-  } catch (error) {
-    console.error("Error in simulation:", error);
-    await updateBlogStatus(blogId, 'failed', { error: 'Simulation process failed.' });
+    // Call GitHub API to create a repository
+    const response = await fetch('https://api.github.com/user/repos', {
+      method: 'POST',
+      headers: {
+        'Authorization': `token ${githubPat}`,
+        'Content-Type': 'application/json',
+        'Accept': 'application/vnd.github.v3+json',
+      },
+      body: JSON.stringify({
+        name: siteName,
+        description: blogData.description || 'A Hugo blog generated by HugoHost',
+        private: false, 
+      }),
+    });
+
+    const responseBody = await response.json(); // Read body once
+
+    if (response.ok) { // Check response.ok (status 200-299)
+      const githubRepoUrl = responseBody.html_url;
+      await updateBlogStatus(blogId, 'live', { githubRepoUrl, liveUrl: 'Deployment setup pending...' });
+    } else {
+      console.error('GitHub API Error:', responseBody);
+      const errorMessage = responseBody.message || `Failed to create GitHub repository (Status: ${response.status})`;
+      await updateBlogStatus(blogId, 'failed', { error: `GitHub API Error: ${errorMessage}` });
+    }
+
+  } catch (error: any) {
+    console.error("Error in blog creation simulation:", error);
+    await updateBlogStatus(blogId, 'failed', { error: `Simulation process failed: ${error.message || 'Unknown error'}` });
   }
 }
+
