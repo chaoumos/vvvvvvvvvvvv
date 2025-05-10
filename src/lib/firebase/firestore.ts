@@ -1,3 +1,4 @@
+
 import {
   collection,
   addDoc,
@@ -77,7 +78,7 @@ export function streamUserBlogs(
   const q = query(
     collection(db, BLOGS_COLLECTION),
     where('userId', '==', userId),
-    orderBy('createdAt', 'desc') // This query requires a composite index on userId and createdAt
+    orderBy('createdAt', 'desc') 
   );
 
   const unsubscribe = onSnapshot(q, (querySnapshot) => {
@@ -135,8 +136,6 @@ export async function deleteBlog(blogId: string): Promise<void> {
 export async function simulateBlogCreationProcess(blogId: string, siteName: string): Promise<void> {
   if (!db) {
     console.error("Firestore is not initialized. Cannot simulate blog creation.");
-    // Optionally update status to failed if possible, or handle as critical error
-    // For now, just log and return to prevent further execution.
     return;
   }
   try {
@@ -176,46 +175,71 @@ export async function simulateBlogCreationProcess(blogId: string, siteName: stri
       await updateBlogStatus(blogId, 'live', { githubRepoUrl, liveUrl: 'Deployment setup pending...' });
     } else {
       const status = response.status;
-      let apiErrorMessage = `Failed to create GitHub repository (Status: ${status})`;
-      
+      let finalUserMessage = `Failed to create GitHub repository (Status: ${status})`; // Default base message
+
       try {
-        const errorText = await response.text(); // Read body as text first
+        const errorText = await response.text();
+        let errorJson: any = null;
         
         try {
-          const errorJson = JSON.parse(errorText); // Try to parse the text as JSON
-          console.error(`GitHub API Error (Status: ${status}, Parsed JSON):`, errorJson);
+          errorJson = JSON.parse(errorText);
+          console.error(`GitHub API Error (Status: ${status}, Parsed JSON):`, errorJson); // This is the line from the error report
 
+          let githubProvidedMessage = "";
           if (errorJson && typeof errorJson.message === 'string') {
-            apiErrorMessage = errorJson.message;
-            if (errorJson.errors && Array.isArray(errorJson.errors)) {
-              const validationMessages = errorJson.errors.map((e: any) => e.message || JSON.stringify(e)).join(', ');
-              apiErrorMessage += ` Details: ${validationMessages}`;
-            }
-          } else if (errorJson && typeof errorJson === 'object' && Object.keys(errorJson).length > 0) {
-            apiErrorMessage += `. Response: ${errorText.substring(0, 200)}${errorText.length > 200 ? '...' : ''}`;
-          } else {
-             apiErrorMessage += `. Raw response: ${errorText.substring(0, 200)}${errorText.length > 200 ? '...' : ''}`;
+            githubProvidedMessage = errorJson.message;
           }
+          
+          if (errorJson && Array.isArray(errorJson.errors) && errorJson.errors.length > 0) {
+            const validationDetails = errorJson.errors.map((e: any) => e.message || JSON.stringify(e)).join('; ');
+            if (githubProvidedMessage) {
+              githubProvidedMessage += ` Details: ${validationDetails}`;
+            } else {
+              githubProvidedMessage = `Validation errors: ${validationDetails}`;
+            }
+          }
+
+          if (githubProvidedMessage) {
+            // If GitHub provided specific messages, use them as the primary error.
+            finalUserMessage = githubProvidedMessage;
+          } else if (errorText && errorText.trim() !== '{}' && errorText.trim() !== '') {
+            // If no specific messages from errorJson, but errorText is useful (not empty or just "{}")
+            finalUserMessage += `. GitHub's raw response: ${errorText.substring(0, 200)}${errorText.length > 200 ? '...' : ''}`;
+          } else {
+            // If errorText was empty or just "{}" after parsing an empty JSON
+            finalUserMessage += ". GitHub returned an empty or non-standard error.";
+          }
+
         } catch (parseError) {
-          // Body was not valid JSON, use the raw text
+          // Body was not valid JSON
           console.error(`GitHub API Error (Status: ${status}, Non-JSON Response):`, errorText);
-          apiErrorMessage += `. Response: ${errorText.substring(0, 200)}${errorText.length > 200 ? '...' : ''}`;
+          if (errorText && errorText.trim() !== '') {
+            finalUserMessage += `. Raw response: ${errorText.substring(0, 200)}${errorText.length > 200 ? '...' : ''}`;
+          } else {
+            finalUserMessage += ". Failed to parse GitHub's error response, which was empty or malformed.";
+          }
         }
       } catch (readError) {
         // Failed to read response body at all
         console.error(`GitHub API Error (Status: ${status}, Failed to read response body):`, readError);
-        apiErrorMessage += '. Additionally, failed to read the error response body.';
+        finalUserMessage += '. Additionally, the system failed to read the error response body from GitHub.';
       }
       
-      if (apiErrorMessage.length > 1000) {
-          apiErrorMessage = apiErrorMessage.substring(0, 997) + "...";
+      // Ensure the message stored in Firestore is prefixed for clarity and truncated.
+      let firestoreErrorMessage = `GitHub API Error: ${finalUserMessage}`;
+      if (firestoreErrorMessage.length > 1000) {
+        firestoreErrorMessage = firestoreErrorMessage.substring(0, 997) + "...";
       }
-
-      await updateBlogStatus(blogId, 'failed', { error: `GitHub API Error: ${apiErrorMessage}` });
+      await updateBlogStatus(blogId, 'failed', { error: firestoreErrorMessage });
     }
 
   } catch (error: any) {
     console.error("Error in blog creation simulation:", error);
-    await updateBlogStatus(blogId, 'failed', { error: `Simulation process failed: ${error.message || 'Unknown error'}` });
+    let simulationErrorMessage = `Simulation process failed: ${error.message || 'Unknown error'}`;
+    if (simulationErrorMessage.length > 1000) {
+        simulationErrorMessage = simulationErrorMessage.substring(0, 997) + "...";
+    }
+    await updateBlogStatus(blogId, 'failed', { error: simulationErrorMessage });
   }
 }
+
