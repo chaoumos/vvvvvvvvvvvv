@@ -11,7 +11,7 @@ export const createBlogSchema = z.object({
   selectedPredefinedTheme: z.string().optional(),
   customThemeUrl: z.string().optional(),
   githubPat: z.string().optional(), // Optional PAT
-}).superRefine(async (data, ctx) => { // Made this callback async
+}).superRefine((data, ctx) => { // Ensure this callback is synchronous, not async
   if (data.themeType === "predefined" && !data.selectedPredefinedTheme) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
@@ -29,3 +29,4 @@ export const createBlogSchema = z.object({
 });
 
 export type CreateBlogFormValues = z.infer<typeof createBlogSchema>;
+
