@@ -4,7 +4,7 @@
 import type { Blog, BlogStatus } from "@/lib/types";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button"; // Added buttonVariants import
 import { Github, ExternalLink, AlertTriangle, RefreshCw, Trash2, Copy } from "lucide-react";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
@@ -156,7 +156,7 @@ export function BlogCard({ blog }: BlogCardProps) {
               </AlertDialogHeader>
               <AlertDialogFooter>
                 <AlertDialogCancel>Cancel</AlertDialogCancel>
-                <AlertDialogAction onClick={handleDelete} className={buttonVariants({variant: "destructive"})} disabled={isDeleting}>
+                <AlertDialogAction onClick={handleDelete} className={cn(buttonVariants({variant: "destructive"}))} disabled={isDeleting}>
                   {isDeleting ? <RefreshCw className="mr-2 h-4 w-4 animate-spin" /> : null}
                   Yes, delete
                 </AlertDialogAction>
