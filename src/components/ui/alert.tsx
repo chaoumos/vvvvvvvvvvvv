@@ -56,4 +56,8 @@ const AlertDescription = React.forwardRef<
 ))
 AlertDescription.displayName = "AlertDescription"
 
-export { Alert, AlertTitle, AlertDescription }
+// Export with an alias if direct usage elsewhere might conflict
+// For example, if imported directly as AlertDescription in files using react-hook-form's FormDescription
+const ShadAlertDescription = AlertDescription;
+
+export { Alert, AlertTitle, AlertDescription, ShadAlertDescription }

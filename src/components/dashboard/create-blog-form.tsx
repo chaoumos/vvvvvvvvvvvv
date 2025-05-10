@@ -1,4 +1,3 @@
-
 "use client";
 
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -21,14 +20,14 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { useToast } from "@/hooks/use-toast";
 import { useState } from "react";
 import { createBlogAction } from "@/app/dashboard/create/actions";
-import { createBlogSchema, type CreateBlogFormValues } from "@/app/dashboard/create/schema"; // Updated import path
+import { createBlogSchema, type CreateBlogFormValues } from "@/app/dashboard/create/schema"; 
 import { useRouter } from "next/navigation";
 import { predefinedThemes } from "@/lib/themes";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import Image from "next/image";
 import { useAuth } from "@/hooks/use-auth";
 import { AlertCircle, Eye, EyeOff, GitFork, Github, Globe, Info, Loader2, LockKeyhole, PencilLine, ScanText, StickyNote } from "lucide-react";
-import { Alert, AlertTitle } from "../ui/alert";
+import { Alert, AlertTitle, AlertDescription as ShadAlertDescription } from "@/components/ui/alert"; // Renamed AlertDescription to avoid conflict
 
 export function CreateBlogForm() {
   const { user } = useAuth();
@@ -58,29 +57,41 @@ export function CreateBlogForm() {
     }
     setIsLoading(true);
     try {
+      // The userId is now part of the schema and should be included in `values` if needed by schema,
+      // or explicitly passed if not part of form values directly manipulated by user.
+      // createBlogSchema expects userId, so ensure it's in `values` or add it here.
+      // For this setup, it seems userId is added by the action itself if needed or from form state.
+      // The schema has userId, so it should be in `values` if form has it.
+      // Let's ensure userId is passed from the form or useAuth.
+      // The schema includes `userId`, so it's better to ensure it's part of `values` from the start.
+      // However, `createBlogAction` already expects `userId` within `values`.
+      // The form doesn't have a `userId` field for the user to fill. It's added to values before calling action.
+
       const result = await createBlogAction({ ...values, userId: user.uid });
-      if (result.error) {
+
+      if (result.success && result.blogId) {
+        toast({
+          title: "Blog Creation Initiated!",
+          description: result.message || `Your blog "${values.blogTitle}" is being set up. You'll be redirected shortly.`,
+        });
+        router.push("/dashboard");
+      } else {
+        // Handle errors (validation or others)
         toast({
           title: "Creation Failed",
-          description: result.message || result.error,
+          description: result.message || result.error || "An unknown error occurred during blog creation.",
           variant: "destructive",
         });
         if (result.issues) {
-            // Optionally set form errors from server validation
             Object.entries(result.issues).forEach(([field, errors]) => {
                 if (errors && errors.length > 0) {
                     form.setError(field as keyof CreateBlogFormValues, { message: errors[0] });
                 }
             });
         }
-      } else {
-        toast({
-          title: "Blog Creation Initiated!",
-          description: "Your new blog is being set up. You'll be redirected shortly.",
-        });
-        router.push("/dashboard");
       }
     } catch (error) {
+      // This catch is for unexpected errors during the action call itself (e.g., network issues)
       toast({
         title: "An Unexpected Error Occurred",
         description: (error as Error).message || "Please try again.",
@@ -91,6 +102,15 @@ export function CreateBlogForm() {
     }
   }
 
+  // Populate userId in defaultValues if user is available
+  // This is useful if userId is part of the form schema directly
+  React.useEffect(() => {
+    if (user) {
+      form.setValue('userId', user.uid);
+    }
+  }, [user, form]);
+
+
   return (
     <Card className="w-full max-w-3xl mx-auto shadow-xl">
       <CardHeader>
@@ -100,6 +120,10 @@ export function CreateBlogForm() {
       <CardContent>
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-8">
+            {/* UserId field is implicitly handled by passing user.uid in onSubmit */}
+            {/* If schema requires it, it should be part of the form values passed to resolver */}
+            {/* For now, assuming userId is primarily managed server-side or passed explicitly */}
+
             <FormField
               control={form.control}
               name="siteName"
@@ -295,9 +319,10 @@ export function CreateBlogForm() {
                    <Alert variant="default" className="mt-2 bg-yellow-50 border-yellow-300 text-yellow-700">
                       <AlertCircle className="h-4 w-4 !text-yellow-700" />
                       <AlertTitle className="font-semibold">Security Notice</AlertTitle>
-                      <FormDescription className="!text-yellow-700">
+                      {/* Using ShadAlertDescription to avoid conflict with FormDescription from react-hook-form */}
+                      <ShadAlertDescription className="!text-yellow-700">
                         Your PAT is sent to the server for repository creation and is not stored persistently by HugoHost after its initial use. However, always use tokens with the minimum required permissions and consider revoking them after use if you are concerned.
-                      </FormDescription>
+                      </ShadAlertDescription>
                     </Alert>
                   <FormMessage />
                 </FormItem>

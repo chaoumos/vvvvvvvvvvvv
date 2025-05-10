@@ -1,30 +1,34 @@
-
 "use server";
 
 import { addBlog, simulateBlogCreationProcess } from "@/lib/firebase/firestore";
 import type { Blog, SelectedTheme } from "@/lib/types";
 import { predefinedThemes } from "@/lib/themes";
-import { createBlogSchema, type CreateBlogFormValues } from "./schema"; // Import from new schema file
+import { createBlogSchema, type CreateBlogFormValues } from "./schema"; 
 
-// This is a simplified auth check. In a real app, use server-side Firebase Admin SDK to verify user.
-async function getCurrentUserId(): Promise<string | null> {
-  // This is NOT secure for server actions. Placeholder for demonstration.
-  // On client, auth.currentUser is available. Server actions need a different mechanism.
-  // For a real app, you'd pass an ID token and verify it with Firebase Admin SDK.
-  // For now, this action will rely on the client to pass the UID, which is insecure.
-  // Let's assume for this exercise the form passes the UID.
-  return null; // This will be overridden by UID from form data.
+// Define a more specific return type for the action
+interface ActionResult {
+  success: boolean;
+  blogId?: string;
+  message?: string;
+  error?: string;
+  issues?: Record<string, string[] | undefined>;
 }
 
-export async function createBlogAction(values: CreateBlogFormValues) {
+export async function createBlogAction(values: CreateBlogFormValues): Promise<ActionResult> {
   try {
+    // Note: The schema now includes userId, so it should be present in `values`.
+    // The form component's onSubmit is responsible for adding `user.uid` to the values.
     const validatedFields = createBlogSchema.safeParse(values);
     if (!validatedFields.success) {
-      return { error: "Invalid input.", issues: validatedFields.error.flatten().fieldErrors };
+      return { 
+        success: false, 
+        error: "Invalid input. Please check the fields below.", 
+        issues: validatedFields.error.flatten().fieldErrors 
+      };
     }
 
     const { 
-      userId, 
+      userId, // userId is now expected from validatedFields.data
       siteName, 
       blogTitle, 
       description, 
@@ -33,22 +37,21 @@ export async function createBlogAction(values: CreateBlogFormValues) {
       customThemeUrl, 
       githubPat 
     } = validatedFields.data;
-
-    // This check is effectively bypassed due to client providing UID.
-    // const currentUserId = await getCurrentUserId(); // This is a placeholder.
-    // if (!currentUserId) {
-    //   return { error: "User not authenticated." };
-    // }
+    
+    if (!userId) { // Should not happen if schema requires it and form passes it
+        return { success: false, error: "User ID is missing." };
+    }
 
     let theme: SelectedTheme;
     if (themeType === "predefined" && selectedPredefinedTheme) {
       const foundTheme = predefinedThemes.find(t => t.id === selectedPredefinedTheme);
-      if (!foundTheme) return { error: "Invalid predefined theme selected." };
+      if (!foundTheme) return { success: false, error: "Invalid predefined theme selected." };
       theme = { name: foundTheme.name, gitUrl: foundTheme.gitUrl, isCustom: false };
     } else if (themeType === "custom" && customThemeUrl) {
       theme = { name: "Custom Theme", gitUrl: customThemeUrl, isCustom: true };
     } else {
-      return { error: "Theme information is missing or invalid." };
+      // This case should ideally be caught by schema validation (superRefine)
+      return { success: false, error: "Theme information is missing or invalid." };
     }
     
     const blogData: Omit<Blog, 'id' | 'userId' | 'createdAt' | 'status'> = {
@@ -56,7 +59,7 @@ export async function createBlogAction(values: CreateBlogFormValues) {
       blogTitle,
       description,
       theme,
-      pat: githubPat, // Storing PAT like this is NOT recommended for production.
+      pat: githubPat, 
     };
 
     const blogId = await addBlog(userId, blogData);
@@ -69,7 +72,7 @@ export async function createBlogAction(values: CreateBlogFormValues) {
 
   } catch (error) {
     console.error("Create blog action error:", error);
-    return { error: "Failed to create blog. Please try again." };
+    const errorMessage = error instanceof Error ? error.message : "An unexpected error occurred.";
+    return { success: false, error: `Failed to create blog. Details: ${errorMessage}` };
   }
 }
-
