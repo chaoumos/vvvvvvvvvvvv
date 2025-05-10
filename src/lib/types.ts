@@ -41,5 +41,6 @@ export interface Blog {
   status: BlogStatus;
   createdAt: number; // Firebase Timestamp or milliseconds
   pat?: string; // Handled securely, ideally temporary or via GitHub App flow
+  githubApiKey?: string; // Optional GitHub API Key
   error?: string;
 }

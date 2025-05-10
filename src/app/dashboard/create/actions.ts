@@ -1,3 +1,4 @@
+
 "use server";
 
 import { addBlog, simulateBlogCreationProcess } from "@/lib/firebase/firestore";
@@ -5,7 +6,6 @@ import type { Blog, SelectedTheme } from "@/lib/types";
 import { predefinedThemes } from "@/lib/themes";
 import { createBlogSchema, type CreateBlogFormValues } from "./schema"; 
 
-// Define a more specific return type for the action
 interface ActionResult {
   success: boolean;
   blogId?: string;
@@ -16,8 +16,6 @@ interface ActionResult {
 
 export async function createBlogAction(values: CreateBlogFormValues): Promise<ActionResult> {
   try {
-    // Note: The schema now includes userId, so it should be present in `values`.
-    // The form component's onSubmit is responsible for adding `user.uid` to the values.
     const validatedFields = createBlogSchema.safeParse(values);
     if (!validatedFields.success) {
       return { 
@@ -28,17 +26,18 @@ export async function createBlogAction(values: CreateBlogFormValues): Promise<Ac
     }
 
     const { 
-      userId, // userId is now expected from validatedFields.data
+      userId, 
       siteName, 
       blogTitle, 
       description, 
       themeType, 
       selectedPredefinedTheme, 
       customThemeUrl, 
-      githubPat 
+      githubPat,
+      githubApiKey // Destructure the new field
     } = validatedFields.data;
     
-    if (!userId) { // Should not happen if schema requires it and form passes it
+    if (!userId) {
         return { success: false, error: "User ID is missing." };
     }
 
@@ -50,7 +49,6 @@ export async function createBlogAction(values: CreateBlogFormValues): Promise<Ac
     } else if (themeType === "custom" && customThemeUrl) {
       theme = { name: "Custom Theme", gitUrl: customThemeUrl, isCustom: true };
     } else {
-      // This case should ideally be caught by schema validation (superRefine)
       return { success: false, error: "Theme information is missing or invalid." };
     }
     
@@ -60,13 +58,20 @@ export async function createBlogAction(values: CreateBlogFormValues): Promise<Ac
       description,
       theme,
       pat: githubPat, 
+      githubApiKey, // Include the new field in blog data
     };
 
     const blogId = await addBlog(userId, blogData);
 
     // Start simulation (in real app, trigger Cloud Function)
-    // No await here, let it run in background. Client will see updates via Firestore listener.
-    simulateBlogCreationProcess(blogId, siteName);
+    if (blogId) { // Only proceed if blogId was successfully obtained
+        simulateBlogCreationProcess(blogId, siteName);
+    } else {
+        // This case should ideally not be reached if addBlog throws on failure,
+        // but as a safeguard:
+        return { success: false, error: "Failed to obtain blog ID after adding to database." };
+    }
+    
 
     return { success: true, blogId: blogId, message: "Blog creation process initiated!" };
 

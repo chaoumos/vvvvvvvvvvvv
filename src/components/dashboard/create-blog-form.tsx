@@ -27,8 +27,8 @@ import { predefinedThemes } from "@/lib/themes";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import Image from "next/image";
 import { useAuth } from "@/hooks/use-auth";
-import { AlertCircle, Eye, EyeOff, GitFork, Github, Globe, Info, Loader2, LockKeyhole, PencilLine, ScanText, StickyNote } from "lucide-react";
-import { Alert, AlertTitle, AlertDescription as ShadAlertDescription } from "@/components/ui/alert"; // Renamed AlertDescription to avoid conflict
+import { AlertCircle, Eye, EyeOff, GitFork, Github, Globe, Info, Loader2, LockKeyhole, PencilLine, ScanText, StickyNote, KeyRound } from "lucide-react"; // Added KeyRound
+import { Alert, AlertTitle, AlertDescription as ShadAlertDescription } from "@/components/ui/alert";
 
 export function CreateBlogForm() {
   const { user } = useAuth();
@@ -37,11 +37,12 @@ export function CreateBlogForm() {
   const [isLoading, setIsLoading] = useState(false);
   const [themeType, setThemeType] = useState<"predefined" | "custom">("predefined");
   const [showPat, setShowPat] = useState(false);
+  const [showApiKey, setShowApiKey] = useState(false); // State for GitHub API Key visibility
 
   const form = useForm<CreateBlogFormValues>({
     resolver: zodResolver(createBlogSchema),
     defaultValues: {
-      userId: user?.uid || "", // Initialize userId here if user is available
+      userId: user?.uid || "",
       siteName: "",
       blogTitle: "",
       description: "",
@@ -49,8 +50,15 @@ export function CreateBlogForm() {
       selectedPredefinedTheme: predefinedThemes[0]?.id || "",
       customThemeUrl: "",
       githubPat: "",
+      githubApiKey: "", // Default value for new field
     },
   });
+
+  useEffect(() => {
+    if (user && form.getValues('userId') !== user.uid) {
+      form.setValue('userId', user.uid);
+    }
+  }, [user, form]);
 
   async function onSubmit(values: CreateBlogFormValues) {
     if (!user) {
@@ -59,8 +67,7 @@ export function CreateBlogForm() {
     }
     setIsLoading(true);
     try {
-      // Ensure userId is correctly included from the form values, which should be populated by useEffect or defaultValues
-      const finalValues = { ...values, userId: user.uid }; // Ensure latest user.uid is used
+      const finalValues = { ...values, userId: user.uid }; 
       const result = await createBlogAction(finalValues);
 
       if (result.success && result.blogId) {
@@ -70,7 +77,6 @@ export function CreateBlogForm() {
         });
         router.push("/dashboard");
       } else {
-        // Handle errors (validation or others)
         toast({
           title: "Creation Failed",
           description: result.message || result.error || "An unknown error occurred during blog creation.",
@@ -85,7 +91,6 @@ export function CreateBlogForm() {
         }
       }
     } catch (error) {
-      // This catch is for unexpected errors during the action call itself (e.g., network issues)
       toast({
         title: "An Unexpected Error Occurred",
         description: (error as Error).message || "Please try again.",
@@ -95,14 +100,6 @@ export function CreateBlogForm() {
       setIsLoading(false);
     }
   }
-
-  // Populate userId in defaultValues if user is available
-  // This is useful if userId is part of the form schema directly
-  useEffect(() => {
-    if (user && form.getValues('userId') !== user.uid) {
-      form.setValue('userId', user.uid);
-    }
-  }, [user, form]);
 
 
   return (
@@ -114,10 +111,6 @@ export function CreateBlogForm() {
       <CardContent>
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-8">
-            {/* UserId field is implicitly handled by passing user.uid in onSubmit */}
-            {/* If schema requires it, it should be part of the form values passed to resolver */}
-            {/* For now, assuming userId is primarily managed server-side or passed explicitly */}
-
             <FormField
               control={form.control}
               name="siteName"
@@ -313,11 +306,44 @@ export function CreateBlogForm() {
                    <Alert variant="default" className="mt-2 bg-yellow-50 border-yellow-300 text-yellow-700">
                       <AlertCircle className="h-4 w-4 !text-yellow-700" />
                       <AlertTitle className="font-semibold">Security Notice</AlertTitle>
-                      {/* Using ShadAlertDescription to avoid conflict with FormDescription from react-hook-form */}
                       <ShadAlertDescription className="!text-yellow-700">
                         Your PAT is sent to the server for repository creation and is not stored persistently by HugoHost after its initial use. However, always use tokens with the minimum required permissions and consider revoking them after use if you are concerned.
                       </ShadAlertDescription>
                     </Alert>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name="githubApiKey"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>GitHub API Key (Optional)</FormLabel>
+                  <div className="relative">
+                    <KeyRound className="absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-muted-foreground" />
+                    <FormControl>
+                      <Input
+                        type={showApiKey ? "text" : "password"}
+                        placeholder="Your GitHub API Key"
+                        {...field}
+                        className="pl-10 pr-10"
+                      />
+                    </FormControl>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="absolute right-1 top-1/2 h-7 -translate-y-1/2 px-3"
+                      onClick={() => setShowApiKey(!showApiKey)}
+                    >
+                      {showApiKey ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
+                    </Button>
+                  </div>
+                  <FormDescription>
+                    Provide an alternative GitHub API Key if needed. This key is optional and handled server-side.
+                  </FormDescription>
                   <FormMessage />
                 </FormItem>
               )}
@@ -333,4 +359,3 @@ export function CreateBlogForm() {
     </Card>
   );
 }
-

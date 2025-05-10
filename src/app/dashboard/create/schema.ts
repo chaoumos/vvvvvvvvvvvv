@@ -2,7 +2,7 @@
 import { z } from "zod";
 
 export const createBlogSchema = z.object({
-  userId: z.string().min(1, "User ID is required."), // Client must provide this for now.
+  userId: z.string().min(1, "User ID is required."), 
   siteName: z.string().min(3, "Site name must be at least 3 characters.")
     .regex(/^[a-zA-Z0-9_-]+$/, "Site name can only contain letters, numbers, hyphens, and underscores."),
   blogTitle: z.string().min(5, "Blog title must be at least 5 characters."),
@@ -11,7 +11,8 @@ export const createBlogSchema = z.object({
   selectedPredefinedTheme: z.string().optional(),
   customThemeUrl: z.string().optional(),
   githubPat: z.string().optional(), // Optional PAT
-}).superRefine((data, ctx) => { // Ensure this callback is synchronous, not async
+  githubApiKey: z.string().optional(), // Optional GitHub API Key
+}).superRefine((data, ctx) => { 
   if (data.themeType === "predefined" && !data.selectedPredefinedTheme) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
@@ -29,4 +30,3 @@ export const createBlogSchema = z.object({
 });
 
 export type CreateBlogFormValues = z.infer<typeof createBlogSchema>;
-
