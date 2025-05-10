@@ -1,16 +1,8 @@
 
 "use server";
 
-import { z } from "zod";
 import { generateHugoConfig, type GenerateHugoConfigInput } from "@/ai/flows/generate-hugo-config";
-
-export const aiConfigSchema = z.object({
-  projectTitle: z.string().min(3, "Project title must be at least 3 characters."),
-  blogName: z.string().min(3, "Blog name must be at least 3 characters."),
-  userPrompt: z.string().min(10, "Prompt must be at least 10 characters."),
-});
-
-export type AiConfigFormValues = z.infer<typeof aiConfigSchema>;
+import { aiConfigSchema, type AiConfigFormValues } from "./schema"; // Import from new schema file
 
 export async function generateHugoConfigAction(values: AiConfigFormValues) {
   try {
@@ -30,3 +22,4 @@ export async function generateHugoConfigAction(values: AiConfigFormValues) {
     return { error: `Failed to generate Hugo config: ${errorMessage}` };
   }
 }
+

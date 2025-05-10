@@ -18,7 +18,8 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 import { useState } from "react";
-import { generateHugoConfigAction, aiConfigSchema, type AiConfigFormValues } from "@/app/dashboard/ai-config-assistant/actions";
+import { generateHugoConfigAction } from "@/app/dashboard/ai-config-assistant/actions";
+import { aiConfigSchema, type AiConfigFormValues } from "@/app/dashboard/ai-config-assistant/schema"; // Updated import path
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Sparkles, FileText, Loader2, Copy } from "lucide-react";
 
@@ -44,7 +45,7 @@ export function AiConfigForm() {
       if (result.error) {
         toast({
           title: "Generation Failed",
-          description: result.message || result.error,
+          description: (result.error as string) || "An unknown error occurred during generation.", // Ensure description is a string
           variant: "destructive",
         });
          if (result.issues) {
@@ -187,3 +188,4 @@ export function AiConfigForm() {
     </div>
   );
 }
+

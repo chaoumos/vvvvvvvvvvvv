@@ -20,7 +20,8 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { useState } from "react";
-import { createBlogAction, createBlogSchema, type CreateBlogFormValues } from "@/app/dashboard/create/actions";
+import { createBlogAction } from "@/app/dashboard/create/actions";
+import { createBlogSchema, type CreateBlogFormValues } from "@/app/dashboard/create/schema"; // Updated import path
 import { useRouter } from "next/navigation";
 import { predefinedThemes } from "@/lib/themes";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -313,3 +314,4 @@ export function CreateBlogForm() {
     </Card>
   );
 }
+
