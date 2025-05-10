@@ -1,4 +1,3 @@
-
 import {
   collection,
   addDoc,
@@ -12,6 +11,7 @@ import {
   deleteDoc,
   onSnapshot,
   type Unsubscribe,
+  getDoc, // Added getDoc for fetching single document by ref
 } from 'firebase/firestore';
 import { db } from './client-config';
 import type { Blog, BlogStatus, SelectedTheme } from '../types';
@@ -21,6 +21,9 @@ const BLOGS_COLLECTION = 'blogs';
 // Add a new blog
 export async function addBlog(userId: string, blogData: Omit<Blog, 'id' | 'userId' | 'createdAt' | 'status'>): Promise<string> {
   try {
+    if (!db) {
+      throw new Error("Firestore database is not initialized.");
+    }
     const docRef = await addDoc(collection(db, BLOGS_COLLECTION), {
       ...blogData,
       userId,
@@ -37,6 +40,9 @@ export async function addBlog(userId: string, blogData: Omit<Blog, 'id' | 'userI
 // Get all blogs for a user
 export async function getUserBlogs(userId: string): Promise<Blog[]> {
   try {
+    if (!db) {
+      throw new Error("Firestore database is not initialized.");
+    }
     const q = query(
       collection(db, BLOGS_COLLECTION),
       where('userId', '==', userId),
@@ -49,7 +55,6 @@ export async function getUserBlogs(userId: string): Promise<Blog[]> {
       return {
         id: docSnapshot.id,
         ...data,
-        // Convert Firestore Timestamp to milliseconds for consistency with Blog type
         createdAt: createdAtTimestamp?.toMillis ? createdAtTimestamp.toMillis() : (data.createdAt || 0),
       } as Blog;
     });
@@ -65,10 +70,14 @@ export function streamUserBlogs(
   onUpdate: (blogs: Blog[]) => void,
   onError: (error: Error) => void
 ): Unsubscribe {
+  if (!db) {
+    onError(new Error("Firestore database is not initialized. Cannot stream blogs."));
+    return () => {}; // Return a no-op unsubscribe function
+  }
   const q = query(
     collection(db, BLOGS_COLLECTION),
     where('userId', '==', userId),
-    orderBy('createdAt', 'desc')
+    orderBy('createdAt', 'desc') // This query requires a composite index on userId and createdAt
   );
 
   const unsubscribe = onSnapshot(q, (querySnapshot) => {
@@ -78,15 +87,17 @@ export function streamUserBlogs(
       return {
         id: docSnapshot.id,
         ...data,
-        // Convert Firestore Timestamp to milliseconds
         createdAt: createdAtTimestamp?.toMillis ? createdAtTimestamp.toMillis() : (data.createdAt || 0),
       } as Blog;
     });
     onUpdate(blogs);
-  }, (err) => { // Firebase onSnapshot error callback
+  }, (err) => { 
     console.error("Error streaming user blogs from Firestore:", err);
-    // Pass a standard Error object to the onError callback
-    onError(new Error(err.message || 'An unknown error occurred while streaming blogs.'));
+    let errorMessage = err.message || 'An unknown error occurred while streaming blogs.';
+    if (err.code === 'failed-precondition' && err.message.includes('query requires an index')) {
+        errorMessage = `Firestore query requires an index. Please create it in the Firebase console. Details: ${err.message}`;
+    }
+    onError(new Error(errorMessage));
   });
 
   return unsubscribe;
@@ -96,6 +107,9 @@ export function streamUserBlogs(
 // Update blog status
 export async function updateBlogStatus(blogId: string, status: BlogStatus, details?: Partial<Pick<Blog, 'githubRepoUrl' | 'liveUrl' | 'error'>>): Promise<void> {
   try {
+    if (!db) {
+      throw new Error("Firestore database is not initialized.");
+    }
     const blogRef = doc(db, BLOGS_COLLECTION, blogId);
     await updateDoc(blogRef, { status, ...details });
   } catch (error) {
@@ -107,6 +121,9 @@ export async function updateBlogStatus(blogId: string, status: BlogStatus, detai
 // Delete a blog
 export async function deleteBlog(blogId: string): Promise<void> {
   try {
+    if (!db) {
+      throw new Error("Firestore database is not initialized.");
+    }
     const blogRef = doc(db, BLOGS_COLLECTION, blogId);
     await deleteDoc(blogRef);
   } catch (error) {
@@ -115,33 +132,23 @@ export async function deleteBlog(blogId: string): Promise<void> {
   }
 }
 
-/**
- * Handles the actual backend processing for blog creation, including GitHub repo creation.
- * In a real app, this would ideally be triggered by a Cloud Function or similar server-side process
- * reacting to the Firestore 'pending' status, to securely handle the PAT.
- * For demonstration purposes, this is implemented here.
- */
 export async function simulateBlogCreationProcess(blogId: string, siteName: string): Promise<void> {
+  if (!db) {
+    console.error("Firestore is not initialized. Cannot simulate blog creation.");
+    // Optionally update status to failed if possible, or handle as critical error
+    // For now, just log and return to prevent further execution.
+    return;
+  }
   try {
-    await updateBlogStatus(blogId, 'creating_repo'); // Update status to reflect repo creation attempt
+    await updateBlogStatus(blogId, 'creating_repo');
 
-    // Retrieve blog data to get the PAT
-    // Note: Querying by '__name__' is less efficient. If possible, get the full doc directly if you have path.
-    // However, for this simulation structure, this query is used.
-    const blogCollectionRef = collection(db, BLOGS_COLLECTION);
-    const blogDocumentRef = doc(blogCollectionRef, blogId);
-    
-    // To get the document, you'd typically use getDoc if you have the ref.
-    // The existing code uses a query, which is unusual for fetching a single doc by ID.
-    // Let's adjust to a more standard getDoc if possible, or keep if structure demands.
-    // For now, will keep the query to match existing, but it's a point of potential optimization.
-    const blogQuery = query(collection(db, BLOGS_COLLECTION), where('__name__', '==', blogId));
-    const blogDocSnapshot = await getDocs(blogQuery);
+    const blogDocRef = doc(db, BLOGS_COLLECTION, blogId);
+    const blogDocSnapshot = await getDoc(blogDocRef);
 
-    if (blogDocSnapshot.empty) {
+    if (!blogDocSnapshot.exists()) {
       throw new Error(`Blog with ID ${blogId} not found.`);
     }
-    const blogData = blogDocSnapshot.docs[0].data() as Blog;
+    const blogData = blogDocSnapshot.data() as Blog;
     const githubPat = blogData.pat;
 
     if (!githubPat) {
@@ -149,7 +156,6 @@ export async function simulateBlogCreationProcess(blogId: string, siteName: stri
         return;
     }
 
-    // Call GitHub API to create a repository
     const response = await fetch('https://api.github.com/user/repos', {
       method: 'POST',
       headers: {
@@ -164,15 +170,48 @@ export async function simulateBlogCreationProcess(blogId: string, siteName: stri
       }),
     });
 
-    const responseBody = await response.json(); // Read body once
-
-    if (response.ok) { // Check response.ok (status 200-299)
+    if (response.ok) {
+      const responseBody = await response.json();
       const githubRepoUrl = responseBody.html_url;
       await updateBlogStatus(blogId, 'live', { githubRepoUrl, liveUrl: 'Deployment setup pending...' });
     } else {
-      console.error('GitHub API Error:', responseBody);
-      const errorMessage = responseBody.message || `Failed to create GitHub repository (Status: ${response.status})`;
-      await updateBlogStatus(blogId, 'failed', { error: `GitHub API Error: ${errorMessage}` });
+      const status = response.status;
+      let apiErrorMessage = `Failed to create GitHub repository (Status: ${status})`;
+      
+      try {
+        const errorText = await response.text(); // Read body as text first
+        
+        try {
+          const errorJson = JSON.parse(errorText); // Try to parse the text as JSON
+          console.error(`GitHub API Error (Status: ${status}, Parsed JSON):`, errorJson);
+
+          if (errorJson && typeof errorJson.message === 'string') {
+            apiErrorMessage = errorJson.message;
+            if (errorJson.errors && Array.isArray(errorJson.errors)) {
+              const validationMessages = errorJson.errors.map((e: any) => e.message || JSON.stringify(e)).join(', ');
+              apiErrorMessage += ` Details: ${validationMessages}`;
+            }
+          } else if (errorJson && typeof errorJson === 'object' && Object.keys(errorJson).length > 0) {
+            apiErrorMessage += `. Response: ${errorText.substring(0, 200)}${errorText.length > 200 ? '...' : ''}`;
+          } else {
+             apiErrorMessage += `. Raw response: ${errorText.substring(0, 200)}${errorText.length > 200 ? '...' : ''}`;
+          }
+        } catch (parseError) {
+          // Body was not valid JSON, use the raw text
+          console.error(`GitHub API Error (Status: ${status}, Non-JSON Response):`, errorText);
+          apiErrorMessage += `. Response: ${errorText.substring(0, 200)}${errorText.length > 200 ? '...' : ''}`;
+        }
+      } catch (readError) {
+        // Failed to read response body at all
+        console.error(`GitHub API Error (Status: ${status}, Failed to read response body):`, readError);
+        apiErrorMessage += '. Additionally, failed to read the error response body.';
+      }
+      
+      if (apiErrorMessage.length > 1000) {
+          apiErrorMessage = apiErrorMessage.substring(0, 997) + "...";
+      }
+
+      await updateBlogStatus(blogId, 'failed', { error: `GitHub API Error: ${apiErrorMessage}` });
     }
 
   } catch (error: any) {
@@ -180,4 +219,3 @@ export async function simulateBlogCreationProcess(blogId: string, siteName: stri
     await updateBlogStatus(blogId, 'failed', { error: `Simulation process failed: ${error.message || 'Unknown error'}` });
   }
 }
-
