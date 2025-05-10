@@ -1,3 +1,4 @@
+
 "use client";
 
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -18,7 +19,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { createBlogAction } from "@/app/dashboard/create/actions";
 import { createBlogSchema, type CreateBlogFormValues } from "@/app/dashboard/create/schema"; 
 import { useRouter } from "next/navigation";
@@ -40,6 +41,7 @@ export function CreateBlogForm() {
   const form = useForm<CreateBlogFormValues>({
     resolver: zodResolver(createBlogSchema),
     defaultValues: {
+      userId: user?.uid || "", // Initialize userId here if user is available
       siteName: "",
       blogTitle: "",
       description: "",
@@ -57,17 +59,9 @@ export function CreateBlogForm() {
     }
     setIsLoading(true);
     try {
-      // The userId is now part of the schema and should be included in `values` if needed by schema,
-      // or explicitly passed if not part of form values directly manipulated by user.
-      // createBlogSchema expects userId, so ensure it's in `values` or add it here.
-      // For this setup, it seems userId is added by the action itself if needed or from form state.
-      // The schema has userId, so it should be in `values` if form has it.
-      // Let's ensure userId is passed from the form or useAuth.
-      // The schema includes `userId`, so it's better to ensure it's part of `values` from the start.
-      // However, `createBlogAction` already expects `userId` within `values`.
-      // The form doesn't have a `userId` field for the user to fill. It's added to values before calling action.
-
-      const result = await createBlogAction({ ...values, userId: user.uid });
+      // Ensure userId is correctly included from the form values, which should be populated by useEffect or defaultValues
+      const finalValues = { ...values, userId: user.uid }; // Ensure latest user.uid is used
+      const result = await createBlogAction(finalValues);
 
       if (result.success && result.blogId) {
         toast({
@@ -104,8 +98,8 @@ export function CreateBlogForm() {
 
   // Populate userId in defaultValues if user is available
   // This is useful if userId is part of the form schema directly
-  React.useEffect(() => {
-    if (user) {
+  useEffect(() => {
+    if (user && form.getValues('userId') !== user.uid) {
       form.setValue('userId', user.uid);
     }
   }, [user, form]);
