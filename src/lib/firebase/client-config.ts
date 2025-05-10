@@ -1,3 +1,4 @@
+
 import { initializeApp, getApps, getApp, type FirebaseOptions, type FirebaseApp } from 'firebase/app';
 import { getAuth, type Auth } from 'firebase/auth';
 import { getFirestore, type Firestore } from 'firebase/firestore';
@@ -14,16 +15,22 @@ const storageBucket = process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET;
 const messagingSenderId = process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID;
 const appId = process.env.NEXT_PUBLIC_FIREBASE_APP_ID;
 
+const ENV_VAR_MESSAGE_SUFFIX =
+  'Please check your .env file and ensure it is correctly configured (refer to .env.example or README.md) and the development server has been restarted.';
+
 if (!apiKey || typeof apiKey !== 'string' || apiKey.trim() === '') {
-  firebaseInitializationError = 'Firebase API Key (NEXT_PUBLIC_FIREBASE_API_KEY) is missing or invalid.';
+  firebaseInitializationError = `Firebase API Key (NEXT_PUBLIC_FIREBASE_API_KEY) is missing or invalid. ${ENV_VAR_MESSAGE_SUFFIX}`;
 } else if (!authDomain || typeof authDomain !== 'string' || authDomain.trim() === '') {
-  firebaseInitializationError = 'Firebase Auth Domain (NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN) is missing or invalid.';
+  firebaseInitializationError = `Firebase Auth Domain (NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN) is missing or invalid. ${ENV_VAR_MESSAGE_SUFFIX}`;
 } else if (!projectId || typeof projectId !== 'string' || projectId.trim() === '') {
-  firebaseInitializationError = 'Firebase Project ID (NEXT_PUBLIC_FIREBASE_PROJECT_ID) is missing or invalid.';
+  firebaseInitializationError = `Firebase Project ID (NEXT_PUBLIC_FIREBASE_PROJECT_ID) is missing or invalid. ${ENV_VAR_MESSAGE_SUFFIX}`;
 }
+// Add similar checks for other essential variables if they are critical for app startup
+// For example, storageBucket, messagingSenderId, appId if they are used immediately.
+// For this app, API Key, Auth Domain, and Project ID are the most critical for core functionality.
 
 if (firebaseInitializationError) {
-  console.warn(`Firebase Configuration Error: ${firebaseInitializationError} Please update your .env file, ensure it's correctly named and populated (refer to .env.example), and restart the development server.`);
+  console.warn(`Firebase Configuration Error: ${firebaseInitializationError}`);
 } else {
   const firebaseConfig: FirebaseOptions = {
     apiKey,
@@ -40,7 +47,7 @@ if (firebaseInitializationError) {
     } catch (e: any) {
       console.error("Firebase SDK initialization error:", e);
       firebaseInitializationError = `Firebase SDK initialization failed: ${e.message}. This can be due to incorrect values in your .env file (even if present) or other Firebase project setup issues. Check console for details and ensure server restarted.`;
-      app = null; 
+      app = null;
     }
   } else {
     app = getApp();
@@ -57,9 +64,9 @@ if (firebaseInitializationError) {
       db = null;
       app = null; // also nullify app if auth/db can't be retrieved
     }
-  } else if (!firebaseInitializationError) { 
-      // This case should ideally not be reached if initializeApp succeeded or failed with an error
-      firebaseInitializationError = "Firebase app object is null after initialization attempt, but no specific error was caught. Please check Firebase configuration and server logs.";
+  } else if (!firebaseInitializationError) {
+    // This case means initializeApp failed silently or returned null without throwing an error handled above.
+    firebaseInitializationError = "Firebase app object is null after initialization attempt, but no specific error was caught. Please check Firebase configuration and server logs.";
   }
 }
 
