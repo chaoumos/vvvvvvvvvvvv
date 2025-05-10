@@ -25,20 +25,20 @@ if (!apiKey || typeof apiKey !== 'string' || apiKey.trim() === '') {
 } else if (!projectId || typeof projectId !== 'string' || projectId.trim() === '') {
   firebaseInitializationError = `Firebase Project ID (NEXT_PUBLIC_FIREBASE_PROJECT_ID) is missing or invalid. ${ENV_VAR_MESSAGE_SUFFIX}`;
 }
-// Add similar checks for other essential variables if they are critical for app startup
-// For example, storageBucket, messagingSenderId, appId if they are used immediately.
-// For this app, API Key, Auth Domain, and Project ID are the most critical for core functionality.
+// Add similar checks for other essential variables if they are critical for app startup,
+// e.g., storageBucket, messagingSenderId, appId if they are used immediately.
 
 if (firebaseInitializationError) {
   console.warn(`Firebase Configuration Error: ${firebaseInitializationError}`);
+  // app, auth, db will remain null and firebaseInitializationError will be exported.
 } else {
   const firebaseConfig: FirebaseOptions = {
-    apiKey,
+    apiKey, // These are now confirmed to be non-empty strings
     authDomain,
     projectId,
-    storageBucket,
-    messagingSenderId,
-    appId,
+    storageBucket: storageBucket || undefined, // Use undefined if empty, as Firebase expects
+    messagingSenderId: messagingSenderId || undefined,
+    appId: appId || undefined,
   };
 
   if (!getApps().length) {
@@ -46,27 +46,30 @@ if (firebaseInitializationError) {
       app = initializeApp(firebaseConfig);
     } catch (e: any) {
       console.error("Firebase SDK initialization error:", e);
-      firebaseInitializationError = `Firebase SDK initialization failed: ${e.message}. This can be due to incorrect values in your .env file (even if present) or other Firebase project setup issues. Check console for details and ensure server restarted.`;
-      app = null;
+      firebaseInitializationError = `Firebase SDK initialization failed: ${e.message}. This can be due to incorrect values in your .env file (even if present and seemingly correct), network issues, or other Firebase project setup problems (e.g., services not enabled, billing issues for certain features). Check console for details and ensure your Firebase project is correctly configured and the server restarted.`;
+      app = null; // Ensure app is null if init fails
     }
   } else {
     app = getApp();
   }
 
-  if (app) {
+  if (app) { // Check if app was successfully initialized or retrieved
     try {
       auth = getAuth(app);
       db = getFirestore(app);
     } catch (e: any) {
       console.error("Error getting Firebase Auth/Firestore instance:", e);
-      firebaseInitializationError = `Failed to get Firebase Auth/Firestore instance: ${e.message}. This usually indicates a problem with the initial app initialization.`;
+      // This error indicates a problem post-initialization or with getAuth/getFirestore itself.
+      firebaseInitializationError = `Failed to get Firebase Auth/Firestore instance: ${e.message}. This usually indicates a problem with the initial app initialization or configuration.`;
       auth = null;
       db = null;
-      app = null; // also nullify app if auth/db can't be retrieved
+      // app = null; // Consider if app should also be nullified if critical services fail.
+                   // For an auth-centric app, if auth fails, it's a critical failure.
     }
-  } else if (!firebaseInitializationError) {
-    // This case means initializeApp failed silently or returned null without throwing an error handled above.
-    firebaseInitializationError = "Firebase app object is null after initialization attempt, but no specific error was caught. Please check Firebase configuration and server logs.";
+  } else if (!firebaseInitializationError) { 
+    // This case handles if initializeApp itself returned null or was not set,
+    // and no specific error was caught and set in firebaseInitializationError yet by previous checks.
+    firebaseInitializationError = "Firebase app object is null after initialization attempt, but no specific error was caught. Please check Firebase configuration, .env values, and server logs.";
   }
 }
 
