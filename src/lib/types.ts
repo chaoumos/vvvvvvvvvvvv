@@ -44,3 +44,12 @@ export interface Blog {
   githubApiKey?: string; // Optional GitHub API Key
   error?: string;
 }
+
+export interface ApiConnection {
+  userId: string; // Corresponds to the Firebase Auth UID
+  githubApiKey?: string;
+  cloudflareApiToken?: string; // For Cloudflare API Tokens (preferred)
+  cloudflareApiKey?: string; // For legacy Cloudflare Global API Key
+  cloudflareEmail?: string; // Associated with legacy Cloudflare Global API Key
+  cloudflareAccountId?: string;
+}

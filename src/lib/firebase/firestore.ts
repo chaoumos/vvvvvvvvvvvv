@@ -12,12 +12,14 @@ import {
   deleteDoc,
   onSnapshot,
   type Unsubscribe,
-  getDoc, // Added getDoc for fetching single document by ref
+  getDoc, 
+  setDoc, // Added setDoc for saving/updating API connections
 } from 'firebase/firestore';
 import { db } from './client-config';
-import type { Blog, BlogStatus, SelectedTheme } from '../types';
+import type { Blog, BlogStatus, SelectedTheme, ApiConnection } from '../types';
 
 const BLOGS_COLLECTION = 'blogs';
+const API_CONNECTIONS_COLLECTION = 'api_connections';
 
 // Add a new blog
 export async function addBlog(userId: string, blogData: Omit<Blog, 'id' | 'userId' | 'createdAt' | 'status'>): Promise<string> {
@@ -97,6 +99,8 @@ export function streamUserBlogs(
     let errorMessage = err.message || 'An unknown error occurred while streaming blogs.';
     if (err.code === 'failed-precondition' && err.message.includes('query requires an index')) {
         errorMessage = `Firestore query requires an index. Please create it in the Firebase console. Details: ${err.message}`;
+    } else if (err.code === 'permission-denied') {
+        errorMessage = `Permission denied when trying to stream blogs. Check Firestore security rules. Details: ${err.message}`;
     }
     onError(new Error(errorMessage));
   });
@@ -136,8 +140,17 @@ export async function deleteBlog(blogId: string): Promise<void> {
 export async function simulateBlogCreationProcess(blogId: string, siteName: string): Promise<void> {
   if (!db) {
     console.error("Firestore is not initialized. Cannot simulate blog creation.");
+    // Attempt to update status to failed even if db is not initialized on this client,
+    // though this specific call might fail if db is truly globally uninitialized.
+    // This is more of a fallback.
+    try {
+        await updateBlogStatus(blogId, 'failed', { error: "Firestore not initialized during creation simulation." });
+    } catch (statusUpdateError) {
+        console.error("Failed to update blog status to failed after Firestore initialization check:", statusUpdateError);
+    }
     return;
   }
+
   try {
     await updateBlogStatus(blogId, 'creating_repo');
 
@@ -175,7 +188,7 @@ export async function simulateBlogCreationProcess(blogId: string, siteName: stri
       await updateBlogStatus(blogId, 'live', { githubRepoUrl, liveUrl: 'Deployment setup pending...' });
     } else {
       const status = response.status;
-      let finalUserMessage = `Failed to create GitHub repository (Status: ${status})`; // Default base message
+      let finalUserMessage = `Failed to create GitHub repository (Status: ${status})`; 
 
       try {
         const errorText = await response.text();
@@ -183,7 +196,7 @@ export async function simulateBlogCreationProcess(blogId: string, siteName: stri
         
         try {
           errorJson = JSON.parse(errorText);
-          console.error(`GitHub API Error (Status: ${status}, Parsed JSON):`, errorJson); // This is the line from the error report
+          console.error(`GitHub API Error (Status: ${status}, Parsed JSON):`, errorJson);
 
           let githubProvidedMessage = "";
           if (errorJson && typeof errorJson.message === 'string') {
@@ -191,7 +204,12 @@ export async function simulateBlogCreationProcess(blogId: string, siteName: stri
           }
           
           if (errorJson && Array.isArray(errorJson.errors) && errorJson.errors.length > 0) {
-            const validationDetails = errorJson.errors.map((e: any) => e.message || JSON.stringify(e)).join('; ');
+            const validationDetails = errorJson.errors.map((e: any) => {
+              let msg = e.message || JSON.stringify(e);
+              if (e.field) msg = `${e.field}: ${msg}`;
+              return msg;
+            }).join('; ');
+
             if (githubProvidedMessage) {
               githubProvidedMessage += ` Details: ${validationDetails}`;
             } else {
@@ -200,18 +218,14 @@ export async function simulateBlogCreationProcess(blogId: string, siteName: stri
           }
 
           if (githubProvidedMessage) {
-            // If GitHub provided specific messages, use them as the primary error.
             finalUserMessage = githubProvidedMessage;
           } else if (errorText && errorText.trim() !== '{}' && errorText.trim() !== '') {
-            // If no specific messages from errorJson, but errorText is useful (not empty or just "{}")
             finalUserMessage += `. GitHub's raw response: ${errorText.substring(0, 200)}${errorText.length > 200 ? '...' : ''}`;
           } else {
-            // If errorText was empty or just "{}" after parsing an empty JSON
-            finalUserMessage += ". GitHub returned an empty or non-standard error.";
+             finalUserMessage += ". GitHub returned an empty or non-standard error response.";
           }
 
         } catch (parseError) {
-          // Body was not valid JSON
           console.error(`GitHub API Error (Status: ${status}, Non-JSON Response):`, errorText);
           if (errorText && errorText.trim() !== '') {
             finalUserMessage += `. Raw response: ${errorText.substring(0, 200)}${errorText.length > 200 ? '...' : ''}`;
@@ -220,12 +234,10 @@ export async function simulateBlogCreationProcess(blogId: string, siteName: stri
           }
         }
       } catch (readError) {
-        // Failed to read response body at all
         console.error(`GitHub API Error (Status: ${status}, Failed to read response body):`, readError);
         finalUserMessage += '. Additionally, the system failed to read the error response body from GitHub.';
       }
       
-      // Ensure the message stored in Firestore is prefixed for clarity and truncated.
       let firestoreErrorMessage = `GitHub API Error: ${finalUserMessage}`;
       if (firestoreErrorMessage.length > 1000) {
         firestoreErrorMessage = firestoreErrorMessage.substring(0, 997) + "...";
@@ -239,7 +251,51 @@ export async function simulateBlogCreationProcess(blogId: string, siteName: stri
     if (simulationErrorMessage.length > 1000) {
         simulationErrorMessage = simulationErrorMessage.substring(0, 997) + "...";
     }
-    await updateBlogStatus(blogId, 'failed', { error: simulationErrorMessage });
+    // Ensure updateBlogStatus is called even if some prior step failed
+    try {
+        await updateBlogStatus(blogId, 'failed', { error: simulationErrorMessage });
+    } catch (statusUpdateError) {
+        console.error("Failed to update blog status to failed after simulation error:", statusUpdateError);
+    }
   }
 }
 
+// Save API connections for a user
+export async function saveApiConnection(userId: string, data: Partial<Omit<ApiConnection, 'userId'>>): Promise<void> {
+  try {
+    if (!db) {
+      throw new Error("Firestore database is not initialized.");
+    }
+    if (!userId) {
+      throw new Error("User ID is required to save API connections.");
+    }
+    const apiConnectionRef = doc(db, API_CONNECTIONS_COLLECTION, userId);
+    // Use setDoc with merge: true to create or update the document
+    await setDoc(apiConnectionRef, { ...data, userId }, { merge: true });
+  } catch (error) {
+    console.error('Error saving API connection:', error);
+    throw new Error('Failed to save API connection to Firestore.');
+  }
+}
+
+// Get API connections for a user
+export async function getApiConnection(userId: string): Promise<ApiConnection | null> {
+  try {
+    if (!db) {
+      throw new Error("Firestore database is not initialized.");
+    }
+    if (!userId) {
+      throw new Error("User ID is required to get API connections.");
+    }
+    const apiConnectionRef = doc(db, API_CONNECTIONS_COLLECTION, userId);
+    const docSnapshot = await getDoc(apiConnectionRef);
+
+    if (docSnapshot.exists()) {
+      return { id: docSnapshot.id, ...docSnapshot.data() } as ApiConnection;
+    }
+    return null;
+  } catch (error) {
+    console.error('Error fetching API connection:', error);
+    throw new Error('Failed to fetch API connection from Firestore.');
+  }
+}

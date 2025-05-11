@@ -11,13 +11,14 @@ import {
   SidebarMenuSubItem,
   SidebarMenuSubButton,
 } from "@/components/ui/sidebar";
-import { LayoutDashboard, PlusCircle, Sparkles, Package, Github } from "lucide-react";
+import { LayoutDashboard, PlusCircle, Sparkles, Package, Github, KeyRound } from "lucide-react"; // Added KeyRound
 import { cn } from "@/lib/utils";
 
 const mainNavItems = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/dashboard/create", label: "New Blog", icon: PlusCircle },
   { href: "/dashboard/ai-config-assistant", label: "AI Assistant", icon: Sparkles },
+  { href: "/dashboard/api-connections", label: "API Connections", icon: KeyRound }, // New item
 ];
 
 export function SidebarNav() {
