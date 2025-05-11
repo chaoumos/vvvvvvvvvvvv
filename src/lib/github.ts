@@ -32,7 +32,7 @@ export interface GitHubRepoInfo {
 
 export async function createGitHubRepo(
   octokit: Octokit,
-  owner: string, 
+  owner: string,
   repoName: string,
   description: string
 ): Promise<GitHubRepoInfo> {
@@ -41,7 +41,7 @@ export async function createGitHubRepo(
       name: repoName,
       description,
       private: false,
-      auto_init: false, 
+      auto_init: false,
     });
     return {
       name: response.data.name,
@@ -49,22 +49,31 @@ export async function createGitHubRepo(
       default_branch: response.data.default_branch || 'main',
     };
   } catch (e: any) {
+    // Check if it's a 422 error indicating the repository already exists
     if (e.status === 422) {
-      const message = e.response?.data?.message?.toLowerCase() || e.message?.toLowerCase() || "";
-      const errors = e.response?.data?.errors;
-      let nameExistsInMessage = message.includes("name already exists");
-      let nameExistsInErrors = false;
+      const responseData = e.response?.data;
+      const errors = responseData?.errors;
+      let nameAlreadyExists = false;
+
       if (errors && Array.isArray(errors)) {
-        nameExistsInErrors = errors.some(
-          (err: any) => err.resource === "Repository" && err.field === "name" && err.message?.toLowerCase().includes("already exists")
+        nameAlreadyExists = errors.some(
+          (err: any) =>
+            err.resource === "Repository" &&
+            err.field === "name" &&
+            err.message?.toLowerCase().includes("name already exists on this account")
         );
       }
+      // Fallback: Check top-level message if errors array is not conclusive (less common for this specific error)
+      if (!nameAlreadyExists && responseData?.message?.toLowerCase().includes("name already exists on this account")) {
+        nameAlreadyExists = true;
+      }
 
-      if (nameExistsInMessage || nameExistsInErrors) {
+
+      if (nameAlreadyExists) {
         console.warn(`Repository ${owner}/${repoName} already exists. Fetching its details.`);
         try {
           const existingRepoResponse = await octokit.repos.get({
-            owner, 
+            owner,
             repo: repoName,
           });
           return {
@@ -75,14 +84,20 @@ export async function createGitHubRepo(
         } catch (getRepoError: any) {
           console.error(`Failed to fetch details for existing repository ${owner}/${repoName}:`, getRepoError);
           const wrappedError = new Error(`Repository ${repoName} already exists, but failed to fetch its details: ${getRepoError.message}`);
-          (wrappedError as any).status = getRepoError.status; 
+          (wrappedError as any).status = getRepoError.status || e.status; // Preserve status
+          (wrappedError as any).response = getRepoError.response || e.response; // Preserve response
           throw wrappedError;
         }
+      } else {
+        // It's a 422 error, but not the one we specifically handle for "already exists"
+        console.error(`Error creating GitHub repository ${owner}/${repoName} (422, other validation error):`, e.status, e.message, e.response?.data);
+        throw e; // Re-throw the original 422 error
       }
+    } else {
+      // Non-422 errors
+      console.error(`Error creating GitHub repository ${owner}/${repoName} (Non-422 error):`, e.status, e.message, e.response?.data);
+      throw e; // Re-throw other errors
     }
-    // For other 422 errors, or different statuses, ensure the original error structure is propagated.
-    console.error(`Error creating GitHub repository ${owner}/${repoName}:`, e.status, e.message, e.response?.data);
-    throw e;
   }
 }
 
@@ -90,11 +105,11 @@ export async function createInitialCommitWithReadme(
   octokit: Octokit,
   owner: string,
   repo: string,
-  readmeTitle: string, 
+  readmeTitle: string,
   defaultBranchName: string
 ): Promise<{ commitSha: string }> {
   const readmeContent = `# ${readmeTitle}\n\nThis repository was created by HugoHost. Add your blog posts in the HugoHost dashboard.`;
-  
+
   // 1. Create Blob for README
   const { data: readmeBlob } = await octokit.git.createBlob({
     owner,
@@ -159,7 +174,7 @@ export async function commitBlogPostsToRepo(
   const { data: latestCommitData } = await octokit.repos.getCommit({
     owner,
     repo,
-    ref: branchName, 
+    ref: branchName,
   });
   const latestCommitSha = latestCommitData.sha;
   const baseTreeSha = latestCommitData.commit.tree.sha;
@@ -194,7 +209,7 @@ export async function commitBlogPostsToRepo(
     repo,
     message: `Add/Update ${posts.length} blog post(s)`,
     tree: newTree.sha,
-    parents: [latestCommitSha], 
+    parents: [latestCommitSha],
   });
 
   // 5. Update the branch reference to point to the new commit
