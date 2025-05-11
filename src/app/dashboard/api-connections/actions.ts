@@ -24,9 +24,7 @@ export async function saveApiConnectionsAction(userId: string, values: ApiConnec
     const dataToSave: Partial<ApiConnection> = {};
     for (const key in validatedFields.data) {
       const typedKey = key as keyof ApiConnectionsFormValues;
-      if (validatedFields.data[typedKey] === "") {
-        dataToSave[typedKey] = undefined; 
-      } else if (validatedFields.data[typedKey] !== undefined) {
+      if (validatedFields.data[typedKey] !== undefined && validatedFields.data[typedKey] !== "") {
         dataToSave[typedKey] = validatedFields.data[typedKey];
       }
     }

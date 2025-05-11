@@ -19,8 +19,9 @@ import { Textarea } from "@/components/ui/textarea";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { useState, useEffect } from "react";
+import { useState, useEffect } from "react"; // Added useRef
 import { createBlogAction } from "@/app/dashboard/create/actions";
+import { getApiConnectionsAction } from "@/app/dashboard/api-connections/actions"; // Corrected import path
 import { createBlogSchema, type CreateBlogFormValues } from "@/app/dashboard/create/schema"; 
 import { useRouter } from "next/navigation";
 import { predefinedThemes } from "@/lib/themes";
@@ -60,10 +61,23 @@ export function CreateBlogForm() {
     }
   }, [user, form]);
 
-  async function onSubmit(values: CreateBlogFormValues) {
+  const onSubmit = async (values: CreateBlogFormValues) => { // Changed to arrow function
     if (!user) {
         toast({ title: "Authentication Error", description: "You must be logged in to create a blog.", variant: "destructive" });
         return;
+    }
+
+    // Fetch API connections before submission
+    const apiConnections = await getApiConnectionsAction(user.uid);
+    if (!apiConnections.data?.githubApiKey) {
+      toast({
+        title: "Missing GitHub API Key",
+        description: "Please add your GitHub API Key in the API Connections settings to create a repository.",
+        variant: "destructive"
+      });
+      setIsLoading(false); // Ensure loading state is turned off
+      return; // Prevent submission if key is missing
+
     }
     setIsLoading(true);
     try {
