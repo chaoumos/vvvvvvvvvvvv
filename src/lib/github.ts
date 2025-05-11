@@ -47,7 +47,7 @@ export async function createGitHubRepo(
       name: repoName,
       description,
       private: false,
-      auto_init: false, 
+      auto_init: false, // Create an empty repository
     });
     return {
       name: response.data.name,
@@ -90,7 +90,7 @@ export async function createGitHubRepo(
           (wrappedError as any).status = getRepoError.status || e.status || 500;
           (wrappedError as any).response = getRepoError.response || e.response;
           (wrappedError as any).request = getRepoError.request || e.request;
-          (wrappedError as any).name = 'HttpError'; // Maintain consistency with Octokit error structure
+          (wrappedError as any).name = 'HttpError'; 
           throw wrappedError;
         }
       } else {
@@ -108,13 +108,12 @@ export async function createGitHubRepo(
       console.error(
         `Error creating GitHub repository ${owner}/${repoName} (Non-422 error): Status: ${e.status}, Message: ${e.message}, Response: ${JSON.stringify(e.response?.data, null, 2)}`
       );
-      throw e; // Re-throw original error if not 422 or if specific handling for 422 failed
+      throw e; 
     }
   }
 }
 
 
-// New generic function to commit multiple files
 export async function commitFilesToRepo(
   octokit: Octokit,
   owner: string,
@@ -128,100 +127,131 @@ export async function commitFilesToRepo(
     return null;
   }
 
-  let latestCommitSha: string;
-  let baseTreeSha: string;
-
   try {
+    // Check if branch exists and get its current state
     const { data: branchData } = await octokit.repos.getBranch({
-        owner,
-        repo,
-        branch: branchName,
+      owner,
+      repo,
+      branch: branchName,
     });
-    latestCommitSha = branchData.commit.sha;
-    baseTreeSha = branchData.commit.commit.tree.sha; // Correctly get tree SHA from commit object
-  } catch (error: any) {
-    if (error.status === 404 || (error.response && error.response.status === 404)) { 
-      console.warn(`Branch "${branchName}" not found in ${owner}/${repo}. This might be an empty repository. Attempting to get default branch or create initial commit.`);
-      // If the repo is truly empty, the createForAuthenticatedUser with auto_init: true (if we used it) would create a default branch.
-      // Or, we can assume createInitialCommitWithReadme (which uses this function) will handle creating the first commit.
-      // For a truly empty repo (no commits), there is no base tree. We create a tree from scratch.
-      // Let's try to create an initial commit with the first file if the branch is not found and assume it's an empty repo scenario.
-      // This specific handling might be better in the caller (simulateBlogCreationProcess) or by ensuring `createGitHubRepo` always auto-initializes.
-      // For now, let's allow creating a tree without a base_tree if branch is not found.
-      console.log(`Attempting to create commit on new/empty branch ${branchName}.`);
-      const firstFile = files.shift(); // Take the first file for the initial commit
-      if (!firstFile) {
-        throw new Error("No files to make an initial commit.");
-      }
-      try {
-        const { data: createCommitResponse } = await octokit.repos.createOrUpdateFileContents({
+    const latestCommitSha = branchData.commit.sha;
+    const baseTreeSha = branchData.commit.commit.tree.sha;
+
+    // Branch exists, so we are updating it
+    console.log(`Branch "${branchName}" exists in ${owner}/${repo}. Updating with new commit.`);
+
+    const fileBlobs = await Promise.all(
+      files.map(async (file) => {
+        const { data: blobData } = await octokit.git.createBlob({
           owner,
           repo,
-          path: firstFile.path,
-          message: commitMessage, // Or a more specific "Initial commit" message
-          content: Buffer.from(firstFile.content).toString('base64'),
-          branch: branchName, // This will create the branch if it doesn't exist
+          content: file.content,
+          encoding: 'utf-8',
         });
-        latestCommitSha = createCommitResponse.commit.sha;
-        baseTreeSha = createCommitResponse.commit.tree.sha;
-        console.log(`Initial commit created on new branch ${branchName} with ${firstFile.path}. Commit SHA: ${latestCommitSha}`);
-        // If there are more files, proceed to commit them based on this new state.
-        if (files.length === 0) return { commitSha: latestCommitSha };
-        // Now files array is shorter, continue with the rest
-      } catch(initialCommitError: any) {
-         console.error(`Failed to create initial commit on branch ${branchName} for ${owner}/${repo}:`, initialCommitError);
-         throw new Error(`Failed to create initial commit for new branch: ${initialCommitError.message || 'Unknown error'}`);
-      }
+        return {
+          path: file.path,
+          sha: blobData.sha,
+          mode: '100644' as const,
+          type: 'blob' as const,
+        };
+      })
+    );
 
-    } else {
-      console.error(`Error fetching latest commit for ${owner}/${repo} on branch ${branchName}:`, error);
-      throw new Error(`Failed to fetch latest commit: ${error.message || 'Unknown error'}`);
-    }
-  }
+    const { data: newTree } = await octokit.git.createTree({
+      owner,
+      repo,
+      tree: fileBlobs,
+      base_tree: baseTreeSha, // Use the existing branch's tree as base
+    });
 
-  const fileBlobs = await Promise.all(
-    files.map(async (file) => {
-      const { data: blobData } = await octokit.git.createBlob({
+    const { data: newCommit } = await octokit.git.createCommit({
+      owner,
+      repo,
+      message: commitMessage,
+      tree: newTree.sha,
+      parents: [latestCommitSha], // Parent is the latest commit on the branch
+    });
+
+    await octokit.git.updateRef({
+      owner,
+      repo,
+      ref: `refs/heads/${branchName}`,
+      sha: newCommit.sha,
+      force: false, // This should be a fast-forward
+    });
+
+    console.log(`Successfully updated branch ${branchName} in ${owner}/${repo}. Commit SHA: ${newCommit.sha}`);
+    return { commitSha: newCommit.sha };
+
+  } catch (error: any) {
+    if (error.status === 404 || (error.response && error.response.status === 404)) {
+      // Branch does not exist, this is likely the initial commit to an empty repo or new branch
+      console.warn(`Branch "${branchName}" not found in ${owner}/${repo}. Attempting to create it with initial commit.`);
+      
+      const fileBlobs = await Promise.all(
+        files.map(async (file) => {
+          const { data: blobData } = await octokit.git.createBlob({
+            owner,
+            repo,
+            content: file.content,
+            encoding: 'utf-8',
+          });
+          return {
+            path: file.path,
+            sha: blobData.sha,
+            mode: '100644' as const,
+            type: 'blob' as const,
+          };
+        })
+      );
+
+      // For an initial commit, there's no base_tree
+      const { data: newTree } = await octokit.git.createTree({
         owner,
         repo,
-        content: file.content, // Content should be string here
-        encoding: 'utf-8',
+        tree: fileBlobs,
       });
-      return {
-        path: file.path,
-        sha: blobData.sha,
-        mode: '100644' as const,
-        type: 'blob' as const,
-      };
-    })
-  );
 
-  const { data: newTree } = await octokit.git.createTree({
-    owner,
-    repo,
-    tree: fileBlobs,
-    base_tree: baseTreeSha, // This might be undefined if it's the very first commit to an empty repo.
-                           // GitHub API handles undefined base_tree for root commit.
-  });
+      // For an initial commit, there are no parents
+      const { data: newCommit } = await octokit.git.createCommit({
+        owner,
+        repo,
+        message: commitMessage,
+        tree: newTree.sha,
+        parents: [], 
+      });
 
-  const { data: newCommit } = await octokit.git.createCommit({
-    owner,
-    repo,
-    message: commitMessage,
-    tree: newTree.sha,
-    parents: latestCommitSha ? [latestCommitSha] : [], // No parents if it's the root commit
-  });
+      // Create the new branch reference pointing to the initial commit
+      await octokit.git.createRef({
+        owner,
+        repo,
+        ref: `refs/heads/${branchName}`,
+        sha: newCommit.sha,
+      });
 
-  await octokit.git.updateRef({
-    owner,
-    repo,
-    ref: `refs/heads/${branchName}`,
-    sha: newCommit.sha,
-    force: false, 
-  });
-
-  console.log(`Successfully committed ${files.length} file(s) to GitHub in ${owner}/${repo} on branch ${branchName}. Commit SHA: ${newCommit.sha}`);
-  return { commitSha: newCommit.sha };
+      console.log(`Successfully created branch ${branchName} in ${owner}/${repo} with initial commit. Commit SHA: ${newCommit.sha}`);
+      return { commitSha: newCommit.sha };
+    } else {
+      // For any other errors, log and re-throw with more context
+      console.error(`Error committing files to ${owner}/${repo} on branch ${branchName}:`, error.response?.data || error.message);
+      let errorMessage = `Failed to commit files: ${error.message || 'Unknown error'}`;
+      if (error.status) {
+        errorMessage = `GitHub API Error (${error.status}): ${error.response?.data?.message || error.message}.`;
+        if (error.response?.data?.documentation_url) {
+          errorMessage += ` Review: ${error.response.data.documentation_url}`;
+        }
+        if (error.response?.data?.errors) {
+           errorMessage += ` Details: ${JSON.stringify(error.response.data.errors)}`;
+        }
+      }
+      const enrichedError = new Error(errorMessage);
+      (enrichedError as any).status = error.status;
+      (enrichedError as any).response = error.response; // Preserve original response for upstream handlers
+      (enrichedError as any).request = error.request;
+      (enrichedError as any).name = 'HttpError';
+      throw enrichedError;
+    }
+  }
 }
 
 
@@ -286,3 +316,4 @@ export async function commitPostToGitHub(
     }
     console.log(`Successfully committed post "${post.title || post.id}" to GitHub: ${filePath} in commit ${result.commitSha}`);
 }
+
