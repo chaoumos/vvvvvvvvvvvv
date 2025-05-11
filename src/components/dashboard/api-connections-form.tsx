@@ -1,3 +1,4 @@
+
 "use client";
 
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -21,7 +22,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { getApiConnectionsAction, saveApiConnectionsAction } from "@/app/dashboard/api-connections/actions";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Github, Cloud, KeyRound, UserCircle, Mail, Eye, EyeOff, Loader2, ShieldCheck, AlertTriangle } from "lucide-react";
-import { Alert, AlertTitle, ShadAlertDescription } from "@/components/ui/alert";
+import { Alert, AlertTitle, AlertDescription as ShadAlertDescription } from "@/components/ui/alert";
 
 
 export function ApiConnectionsForm() {
@@ -124,153 +125,163 @@ export function ApiConnectionsForm() {
         </Alert>
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-8">
-            {/* GitHub API Key */}
-            <FormField
-              control={form.control}
-              name="githubApiKey"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel className="flex items-center"><Github className="mr-2 h-5 w-5" /> GitHub API Key</FormLabel>
-                  <div className="relative">
-                    <FormControl>
-                      <Input
-                        type={showGitHubApiKey ? "text" : "password"}
-                        placeholder="ghp_xxxxxxxxxxxxxxxxxxxx"
-                        {...field}
-                        className="pr-10"
-                      />
-                    </FormControl>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      className="absolute right-1 top-1/2 h-7 -translate-y-1/2 px-3"
-                      onClick={() => setShowGitHubApiKey(!showGitHubApiKey)}
-                      aria-label={showGitHubApiKey ? "Hide GitHub API Key" : "Show GitHub API Key"}
-                    >
-                      {showGitHubApiKey ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
-                    </Button>
-                  </div>
-                  <FormDescription>Your GitHub Personal Access Token (PAT) or other API key for repository operations.</FormDescription>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            <hr className="my-6" />
-
-            <h3 className="text-lg font-medium flex items-center"><Cloud className="mr-2 h-5 w-5 text-orange-500" /> Cloudflare Configuration</h3>
             
-            {/* Cloudflare API Token */}
-            <FormField
-              control={form.control}
-              name="cloudflareApiToken"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel className="flex items-center"><KeyRound className="mr-2 h-5 w-5" /> Cloudflare API Token (Recommended)</FormLabel>
-                   <div className="relative">
-                    <FormControl>
-                      <Input
-                        type={showCloudflareApiToken ? "text" : "password"}
-                        placeholder="Cloudflare API Token"
-                        {...field}
-                        className="pr-10"
-                      />
-                    </FormControl>
-                     <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      className="absolute right-1 top-1/2 h-7 -translate-y-1/2 px-3"
-                      onClick={() => setShowCloudflareApiToken(!showCloudflareApiToken)}
-                      aria-label={showCloudflareApiToken ? "Hide Cloudflare API Token" : "Show Cloudflare API Token"}
-                    >
-                      {showCloudflareApiToken ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
-                    </Button>
-                  </div>
-                  <FormDescription>
-                    Create an API Token with permissions for DNS (Zone.Zone, Zone.DNS) and Pages (Account.Pages). 
-                    <a href="https://dash.cloudflare.com/profile/api-tokens" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline ml-1">Create Token</a>
-                  </FormDescription>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-            
-            {/* Cloudflare Account ID */}
-            <FormField
-              control={form.control}
-              name="cloudflareAccountId"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel className="flex items-center"><UserCircle className="mr-2 h-5 w-5" /> Cloudflare Account ID</FormLabel>
-                  <FormControl>
-                    <Input placeholder="Your Cloudflare Account ID" {...field} />
-                  </FormControl>
-                  <FormDescription>Find this on the right sidebar of your Cloudflare dashboard homepage.</FormDescription>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-             <Alert variant="default" className="mt-2 bg-yellow-50 border-yellow-300 text-yellow-700">
-                <AlertTriangle className="h-4 w-4 !text-yellow-700" />
-                <AlertTitle className="font-semibold">Legacy Cloudflare API Key (Less Secure)</AlertTitle>
-                <ShadAlertDescription className="!text-yellow-700">
-                  Using an API Token (above) is recommended. Only use the Global API Key if necessary.
-                </ShadAlertDescription>
-            </Alert>
-
-            {/* Cloudflare Global API Key (Legacy) */}
-            <FormField
-              control={form.control}
-              name="cloudflareApiKey"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel className="flex items-center"><KeyRound className="mr-2 h-5 w-5" /> Cloudflare Global API Key (Legacy)</FormLabel>
-                  <div className="relative">
-                    <FormControl>
-                        <Input 
-                        type={showCloudflareApiKey ? "text" : "password"}
-                        placeholder="Your Global API Key" 
-                        {...field} 
-                        className="pr-10"
+            <section className="space-y-6">
+              <h2 className="text-xl font-semibold flex items-center border-b pb-2 mb-4">
+                <Github className="mr-3 h-6 w-6 text-primary" /> GitHub
+              </h2>
+              {/* GitHub API Key */}
+              <FormField
+                control={form.control}
+                name="githubApiKey"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel className="flex items-center"><KeyRound className="mr-2 h-5 w-5" /> GitHub API Key</FormLabel>
+                    <div className="relative">
+                      <FormControl>
+                        <Input
+                          type={showGitHubApiKey ? "text" : "password"}
+                          placeholder="ghp_xxxxxxxxxxxxxxxxxxxx"
+                          {...field}
+                          className="pr-10"
                         />
-                    </FormControl>
-                     <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      className="absolute right-1 top-1/2 h-7 -translate-y-1/2 px-3"
-                      onClick={() => setShowCloudflareApiKey(!showCloudflareApiKey)}
-                      aria-label={showCloudflareApiKey ? "Hide Cloudflare API Key" : "Show Cloudflare API Key"}
-                    >
-                      {showCloudflareApiKey ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
-                    </Button>
-                  </div>
-                  <FormDescription>Your Cloudflare Global API Key. Found in My Profile &gt; API Tokens.</FormDescription>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
+                      </FormControl>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="absolute right-1 top-1/2 h-7 -translate-y-1/2 px-3"
+                        onClick={() => setShowGitHubApiKey(!showGitHubApiKey)}
+                        aria-label={showGitHubApiKey ? "Hide GitHub API Key" : "Show GitHub API Key"}
+                      >
+                        {showGitHubApiKey ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
+                      </Button>
+                    </div>
+                    <FormDescription>Your GitHub Personal Access Token (PAT) with `repo` scope for repository operations.</FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            </section>
 
-            {/* Cloudflare Email (Legacy) */}
-            <FormField
-              control={form.control}
-              name="cloudflareEmail"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel className="flex items-center"><Mail className="mr-2 h-5 w-5" /> Cloudflare Account Email (for Global API Key)</FormLabel>
-                  <FormControl>
-                    <Input placeholder="you@example.com" {...field} />
-                  </FormControl>
-                  <FormDescription>The email address associated with your Cloudflare account (used with Global API Key).</FormDescription>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
+            <hr className="my-8" />
+
+            <section className="space-y-6">
+              <h2 className="text-xl font-semibold flex items-center border-b pb-2 mb-4">
+                <Cloud className="mr-3 h-6 w-6 text-orange-500" /> Cloudflare
+              </h2>
+              
+              {/* Cloudflare API Token */}
+              <FormField
+                control={form.control}
+                name="cloudflareApiToken"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel className="flex items-center"><KeyRound className="mr-2 h-5 w-5" /> Cloudflare API Token (Recommended)</FormLabel>
+                    <div className="relative">
+                      <FormControl>
+                        <Input
+                          type={showCloudflareApiToken ? "text" : "password"}
+                          placeholder="Cloudflare API Token"
+                          {...field}
+                          className="pr-10"
+                        />
+                      </FormControl>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="absolute right-1 top-1/2 h-7 -translate-y-1/2 px-3"
+                        onClick={() => setShowCloudflareApiToken(!showCloudflareApiToken)}
+                        aria-label={showCloudflareApiToken ? "Hide Cloudflare API Token" : "Show Cloudflare API Token"}
+                      >
+                        {showCloudflareApiToken ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
+                      </Button>
+                    </div>
+                    <FormDescription>
+                      Create an API Token with permissions for DNS (Zone.Zone, Zone.DNS) and Pages (Account.Pages). 
+                      <a href="https://dash.cloudflare.com/profile/api-tokens" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline ml-1">Create Token</a>
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              
+              {/* Cloudflare Account ID */}
+              <FormField
+                control={form.control}
+                name="cloudflareAccountId"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel className="flex items-center"><UserCircle className="mr-2 h-5 w-5" /> Cloudflare Account ID</FormLabel>
+                    <FormControl>
+                      <Input placeholder="Your Cloudflare Account ID" {...field} />
+                    </FormControl>
+                    <FormDescription>Find this on the right sidebar of your Cloudflare dashboard homepage.</FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <Alert variant="default" className="mt-4 bg-yellow-50 border-yellow-300 text-yellow-700">
+                  <AlertTriangle className="h-4 w-4 !text-yellow-700" />
+                  <AlertTitle className="font-semibold">Legacy Cloudflare API Key (Less Secure)</AlertTitle>
+                  <ShadAlertDescription className="!text-yellow-700">
+                    Using an API Token (above) is recommended. Only use the Global API Key if necessary.
+                  </ShadAlertDescription>
+              </Alert>
+
+              {/* Cloudflare Global API Key (Legacy) */}
+              <FormField
+                control={form.control}
+                name="cloudflareApiKey"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel className="flex items-center"><KeyRound className="mr-2 h-5 w-5" /> Cloudflare Global API Key (Legacy)</FormLabel>
+                    <div className="relative">
+                      <FormControl>
+                          <Input 
+                          type={showCloudflareApiKey ? "text" : "password"}
+                          placeholder="Your Global API Key" 
+                          {...field} 
+                          className="pr-10"
+                          />
+                      </FormControl>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="absolute right-1 top-1/2 h-7 -translate-y-1/2 px-3"
+                        onClick={() => setShowCloudflareApiKey(!showCloudflareApiKey)}
+                        aria-label={showCloudflareApiKey ? "Hide Cloudflare API Key" : "Show Cloudflare API Key"}
+                      >
+                        {showCloudflareApiKey ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
+                      </Button>
+                    </div>
+                    <FormDescription>Your Cloudflare Global API Key. Found in My Profile &gt; API Tokens.</FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              {/* Cloudflare Email (Legacy) */}
+              <FormField
+                control={form.control}
+                name="cloudflareEmail"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel className="flex items-center"><Mail className="mr-2 h-5 w-5" /> Cloudflare Account Email (for Global API Key)</FormLabel>
+                    <FormControl>
+                      <Input placeholder="you@example.com" {...field} />
+                    </FormControl>
+                    <FormDescription>The email address associated with your Cloudflare account (used with Global API Key).</FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            </section>
             
-            <Button type="submit" disabled={isLoading || isFetching} className="w-full md:w-auto">
+            <Button type="submit" disabled={isLoading || isFetching} className="w-full md:w-auto mt-8">
               {isLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <ShieldCheck className="mr-2 h-4 w-4" />}
               Save Connections
             </Button>
