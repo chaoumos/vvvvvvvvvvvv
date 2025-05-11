@@ -19,16 +19,16 @@ import { Textarea } from "@/components/ui/textarea";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { useState, useEffect } from "react"; // Added useRef
+import { useState, useEffect } from "react";
 import { createBlogAction } from "@/app/dashboard/create/actions";
-import { getApiConnectionsAction } from "@/app/dashboard/api-connections/actions"; // Corrected import path
+import { getApiConnectionsAction } from "@/app/dashboard/api-connections/actions";
 import { createBlogSchema, type CreateBlogFormValues } from "@/app/dashboard/create/schema"; 
 import { useRouter } from "next/navigation";
 import { predefinedThemes } from "@/lib/themes";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import Image from "next/image";
 import { useAuth } from "@/hooks/use-auth";
-import { AlertCircle, Eye, EyeOff, GitFork, Github, Globe, Info, Loader2, LockKeyhole, PencilLine, ScanText, StickyNote, KeyRound } from "lucide-react"; // Added KeyRound
+import { AlertCircle, GitFork, Github, Loader2, PencilLine, ScanText } from "lucide-react";
 import { Alert, AlertTitle, AlertDescription as ShadAlertDescription } from "@/components/ui/alert";
 
 export function CreateBlogForm() {
@@ -37,8 +37,6 @@ export function CreateBlogForm() {
   const router = useRouter();
   const [isLoading, setIsLoading] = useState(false);
   const [themeType, setThemeType] = useState<"predefined" | "custom">("predefined");
-  const [showPat, setShowPat] = useState(false);
-  const [showApiKey, setShowApiKey] = useState(false); // State for GitHub API Key visibility
 
   const form = useForm<CreateBlogFormValues>({
     resolver: zodResolver(createBlogSchema),
@@ -50,36 +48,35 @@ export function CreateBlogForm() {
       themeType: "predefined",
       selectedPredefinedTheme: predefinedThemes[0]?.id || "",
       customThemeUrl: "",
-      githubPat: "",
-      githubApiKey: "", // Default value for new field
     },
   });
 
   useEffect(() => {
-    if (user && form.getValues('userId') !== user.uid) {
+    if (user) {
       form.setValue('userId', user.uid);
     }
   }, [user, form]);
 
-  const onSubmit = async (values: CreateBlogFormValues) => { // Changed to arrow function
+  const onSubmit = async (values: CreateBlogFormValues) => {
     if (!user) {
         toast({ title: "Authentication Error", description: "You must be logged in to create a blog.", variant: "destructive" });
         return;
     }
-
+    setIsLoading(true);
     // Fetch API connections before submission
-    const apiConnections = await getApiConnectionsAction(user.uid);
-    if (!apiConnections.data?.githubApiKey) {
+    const apiConnectionsResult = await getApiConnectionsAction(user.uid);
+    if (!apiConnectionsResult.success || !apiConnectionsResult.data?.githubApiKey) {
       toast({
         title: "Missing GitHub API Key",
         description: "Please add your GitHub API Key in the API Connections settings to create a repository.",
-        variant: "destructive"
+        variant: "destructive",
+        duration: 5000,
       });
-      setIsLoading(false); // Ensure loading state is turned off
-      return; // Prevent submission if key is missing
-
+      setIsLoading(false); 
+      router.push('/dashboard/api-connections'); // Redirect to API connections page
+      return; 
     }
-    setIsLoading(true);
+
     try {
       const finalValues = { ...values, userId: user.uid }; 
       const result = await createBlogAction(finalValues);
@@ -123,6 +120,13 @@ export function CreateBlogForm() {
         <CardDescription>Provide the necessary information to set up your Hugo blog.</CardDescription>
       </CardHeader>
       <CardContent>
+        <Alert variant="default" className="mb-6 bg-blue-50 border-blue-200 text-blue-700">
+          <AlertCircle className="h-5 w-5 !text-blue-700" />
+          <AlertTitle className="font-semibold">Prerequisite: API Keys</AlertTitle>
+          <ShadAlertDescription className="!text-blue-700">
+            Ensure you have added your GitHub API Key in the <Link href="/dashboard/api-connections" className="font-medium underline hover:text-blue-800">API Connections</Link> page before creating a blog. This is required for automated repository creation. Cloudflare keys are needed for deployment (future feature).
+          </ShadAlertDescription>
+        </Alert>
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-8">
             <FormField
@@ -286,82 +290,6 @@ export function CreateBlogForm() {
                 )}
               />
             )}
-
-            <FormField
-              control={form.control}
-              name="githubPat"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>GitHub Personal Access Token (Optional)</FormLabel>
-                   <div className="relative">
-                    <LockKeyhole className="absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-muted-foreground" />
-                    <FormControl>
-                      <Input 
-                        type={showPat ? "text" : "password"}
-                        placeholder="ghp_xxxxxxxxxxxxxxxxxxxx" 
-                        {...field} 
-                        className="pl-10 pr-10"
-                      />
-                    </FormControl>
-                     <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      className="absolute right-1 top-1/2 h-7 -translate-y-1/2 px-3"
-                      onClick={() => setShowPat(!showPat)}
-                    >
-                      {showPat ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
-                    </Button>
-                  </div>
-                  <FormDescription>
-                    Required for creating a new GitHub repository. Ensure it has `repo` scope. 
-                    This token will be handled server-side and not stored long-term after initial use.
-                  </FormDescription>
-                   <Alert variant="default" className="mt-2 bg-yellow-50 border-yellow-300 text-yellow-700">
-                      <AlertCircle className="h-4 w-4 !text-yellow-700" />
-                      <AlertTitle className="font-semibold">Security Notice</AlertTitle>
-                      <ShadAlertDescription className="!text-yellow-700">
-                        Your PAT is sent to the server for repository creation and is not stored persistently by HugoHost after its initial use. However, always use tokens with the minimum required permissions and consider revoking them after use if you are concerned.
-                      </ShadAlertDescription>
-                    </Alert>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            <FormField
-              control={form.control}
-              name="githubApiKey"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>GitHub API Key (Optional)</FormLabel>
-                  <div className="relative">
-                    <KeyRound className="absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-muted-foreground" />
-                    <FormControl>
-                      <Input
-                        type={showApiKey ? "text" : "password"}
-                        placeholder="Your GitHub API Key"
-                        {...field}
-                        className="pl-10 pr-10"
-                      />
-                    </FormControl>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      className="absolute right-1 top-1/2 h-7 -translate-y-1/2 px-3"
-                      onClick={() => setShowApiKey(!showApiKey)}
-                    >
-                      {showApiKey ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
-                    </Button>
-                  </div>
-                  <FormDescription>
-                    Provide an alternative GitHub API Key if needed. This key is optional and handled server-side.
-                  </FormDescription>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
             
             <Button type="submit" disabled={isLoading} className="w-full md:w-auto">
               {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
@@ -373,3 +301,4 @@ export function CreateBlogForm() {
     </Card>
   );
 }
+

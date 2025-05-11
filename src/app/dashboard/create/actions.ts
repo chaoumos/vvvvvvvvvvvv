@@ -32,9 +32,8 @@ export async function createBlogAction(values: CreateBlogFormValues): Promise<Ac
       description, 
       themeType, 
       selectedPredefinedTheme, 
-      customThemeUrl, 
-      githubPat,
-      githubApiKey // Destructure the new field
+      customThemeUrl,
+      // githubPat and githubApiKey are removed from here
     } = validatedFields.data;
     
     if (!userId) {
@@ -52,23 +51,21 @@ export async function createBlogAction(values: CreateBlogFormValues): Promise<Ac
       return { success: false, error: "Theme information is missing or invalid." };
     }
     
-    const blogData: Omit<Blog, 'id' | 'userId' | 'createdAt' | 'status'> = {
+    // Blog data no longer includes pat or githubApiKey directly from the form
+    const blogData: Omit<Blog, 'id' | 'userId' | 'createdAt' | 'status' | 'pat' | 'githubApiKey'> = {
       siteName,
       blogTitle,
       description,
       theme,
-      pat: githubPat, 
-      githubApiKey, // Include the new field in blog data
     };
 
     const blogId = await addBlog(userId, blogData);
 
     // Start simulation (in real app, trigger Cloud Function)
-    if (blogId) { // Only proceed if blogId was successfully obtained
+    if (blogId) { 
+        // simulateBlogCreationProcess will fetch the GitHub API key from Firestore
         simulateBlogCreationProcess(blogId, siteName);
     } else {
-        // This case should ideally not be reached if addBlog throws on failure,
-        // but as a safeguard:
         return { success: false, error: "Failed to obtain blog ID after adding to database." };
     }
     
@@ -81,3 +78,4 @@ export async function createBlogAction(values: CreateBlogFormValues): Promise<Ac
     return { success: false, error: `Failed to create blog. Details: ${errorMessage}` };
   }
 }
+

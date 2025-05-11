@@ -10,8 +10,7 @@ export const createBlogSchema = z.object({
   themeType: z.enum(["predefined", "custom"]),
   selectedPredefinedTheme: z.string().optional(),
   customThemeUrl: z.string().optional(),
-  githubPat: z.string().optional(), // Optional PAT
-  githubApiKey: z.string().optional(), // Optional GitHub API Key
+  // githubPat and githubApiKey are removed from here
 }).superRefine((data, ctx) => { 
   if (data.themeType === "predefined" && !data.selectedPredefinedTheme) {
     ctx.addIssue({
@@ -30,3 +29,4 @@ export const createBlogSchema = z.object({
 });
 
 export type CreateBlogFormValues = z.infer<typeof createBlogSchema>;
+

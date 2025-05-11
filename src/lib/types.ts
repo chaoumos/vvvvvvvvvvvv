@@ -1,3 +1,4 @@
+
 import type { User as FirebaseUser } from 'firebase/auth';
 
 export interface UserProfile extends FirebaseUser {
@@ -40,8 +41,8 @@ export interface Blog {
   liveUrl?: string;
   status: BlogStatus;
   createdAt: number; // Firebase Timestamp or milliseconds
-  pat?: string; // Handled securely, ideally temporary or via GitHub App flow
-  githubApiKey?: string; // Optional GitHub API Key
+  pat?: string; // Optional: No longer directly set from create form
+  githubApiKey?: string; // Optional: No longer directly set from create form
   error?: string;
 }
 
@@ -53,3 +54,4 @@ export interface ApiConnection {
   cloudflareEmail?: string; // Associated with legacy Cloudflare Global API Key
   cloudflareAccountId?: string;
 }
+
