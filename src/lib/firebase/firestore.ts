@@ -267,22 +267,22 @@ export async function simulateBlogCreationProcess(blogId: string, siteName: stri
       const githubRepoUrl = responseJson.html_url;
       console.log(`Blog ${blogId}: GitHub repo created successfully: ${githubRepoUrl}`);
       
-      const initialDeploymentNote = "GitHub repository created. Site scaffolding, content population, file pushing, and final deployment are part of a full backend process and are only simulated here. The repository may be empty or contain minimal structure from this initial step.";
+      const initialDeploymentNote = "GitHub repository created. Actual Hugo site scaffolding, theme/content population, committing files to the repository, and deployment to a hosting provider like Cloudflare Pages are backend processes. This simulation indicates the repository is ready for such backend operations. The repository will be initially empty or contain default GitHub files.";
 
       await updateBlogStatus(blogId, 'configuring_theme', { githubRepoUrl, deploymentNote: initialDeploymentNote });
-      console.log(`Blog ${blogId}: Status updated to configuring_theme. Simulating theme setup... (NOTE: Actual theme cloning and config update would happen in a backend process)`);
+      console.log(`Blog ${blogId}: Status updated to configuring_theme. Simulating theme setup... (NOTE: Actual theme cloning and config update would happen in a backend process. The GitHub repo at ${githubRepoUrl} is currently empty or has default files.)`);
       await delay(2500); 
 
-      await updateBlogStatus(blogId, 'generating_config', { githubRepoUrl });
+      await updateBlogStatus(blogId, 'generating_config', { githubRepoUrl, deploymentNote: "Simulating Hugo configuration generation and initial content creation. These files are not actually pushed to GitHub in this frontend simulation." });
       console.log(`Blog ${blogId}: Status updated to generating_config. Simulating Hugo config and initial content... (NOTE: Actual 'hugo new site', content creation would happen in a backend process)`);
       await delay(3500); 
       
-      await updateBlogStatus(blogId, 'deploying', { githubRepoUrl });
+      await updateBlogStatus(blogId, 'deploying', { githubRepoUrl, deploymentNote: "Simulating push of generated Hugo site files to GitHub and triggering deployment. In a real setup, this push would populate the repository and a connected hosting service (e.g., Cloudflare Pages) would build and deploy the site." });
       console.log(`Blog ${blogId}: Status updated to deploying. Simulating push of site files to GitHub & triggering deployment... (NOTE: Actual 'git push' and hosting provider API calls would happen in a backend process)`);
       await delay(4000); 
 
       const simulatedLiveUrl = `https://${siteName}.example-pages.dev`; 
-      const finalDeploymentNote = `Simulated deployment complete. GitHub repository created at ${githubRepoUrl}. This simulation does not push Hugo site files; a full backend process is required for actual site content population and deployment.`;
+      const finalDeploymentNote = `Simulation complete. GitHub repository is at ${githubRepoUrl}. The live URL ${simulatedLiveUrl} is a placeholder. A full backend process is required to populate the GitHub repository with Hugo site files and deploy to a live environment.`;
       await updateBlogStatus(blogId, 'live', { 
         githubRepoUrl, 
         liveUrl: simulatedLiveUrl,
