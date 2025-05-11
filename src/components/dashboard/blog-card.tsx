@@ -4,7 +4,7 @@
 import type { Blog, BlogStatus } from "@/lib/types";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Button, buttonVariants } from "@/components/ui/button"; // Added buttonVariants import
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Github, ExternalLink, AlertTriangle, RefreshCw, Trash2, Copy } from "lucide-react";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
@@ -115,8 +115,8 @@ export function BlogCard({ blog }: BlogCardProps) {
           )}
         </div>
       </CardContent>
-      <CardFooter className="flex flex-col sm:flex-row justify-between items-center gap-2 pt-4 border-t">
-        <div className="flex gap-2">
+      <CardFooter className="flex justify-between items-center pt-4 border-t">
+        <div className="flex gap-2"> {/* Left-aligned buttons */}
           {blog.githubRepoUrl && (
             <Button variant="outline" size="sm" asChild>
               <Link href={blog.githubRepoUrl} target="_blank" rel="noopener noreferrer">
@@ -132,7 +132,7 @@ export function BlogCard({ blog }: BlogCardProps) {
             </Button>
           )}
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2"> {/* Right-aligned buttons */}
           {blog.status === 'failed' && (
             <Button variant="outline" size="sm" onClick={handleRetry} disabled={isRetrying}>
               {isRetrying ? <RefreshCw className="mr-1.5 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-1.5 h-4 w-4" />}
@@ -168,3 +168,4 @@ export function BlogCard({ blog }: BlogCardProps) {
     </Card>
   );
 }
+
