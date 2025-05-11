@@ -1,3 +1,4 @@
+
 import { Octokit } from '@octokit/rest';
 import type { BlogPost } from '../types'; // Adjust the path as needed
 
@@ -41,7 +42,7 @@ export async function createGitHubRepo(
       name: repoName,
       description,
       private: false,
-      auto_init: false,
+      auto_init: false, // Set to false as we will push initial content
     });
     return {
       name: response.data.name,
@@ -49,7 +50,6 @@ export async function createGitHubRepo(
       default_branch: response.data.default_branch || 'main',
     };
   } catch (e: any) {
-    // Check if it's a 422 error indicating the repository already exists
     if (e.status === 422) {
       const responseData = e.response?.data;
       const errors = responseData?.errors;
@@ -63,11 +63,9 @@ export async function createGitHubRepo(
             err.message?.toLowerCase().includes("name already exists on this account")
         );
       }
-      // Fallback: Check top-level message if errors array is not conclusive (less common for this specific error)
       if (!nameAlreadyExists && responseData?.message?.toLowerCase().includes("name already exists on this account")) {
         nameAlreadyExists = true;
       }
-
 
       if (nameAlreadyExists) {
         console.warn(`Repository ${owner}/${repoName} already exists. Fetching its details.`);
@@ -84,19 +82,23 @@ export async function createGitHubRepo(
         } catch (getRepoError: any) {
           console.error(`Failed to fetch details for existing repository ${owner}/${repoName}:`, getRepoError);
           const wrappedError = new Error(`Repository ${repoName} already exists, but failed to fetch its details: ${getRepoError.message}`);
-          (wrappedError as any).status = getRepoError.status || e.status; // Preserve status
-          (wrappedError as any).response = getRepoError.response || e.response; // Preserve response
+          (wrappedError as any).status = getRepoError.status || e.status || 500;
+          (wrappedError as any).response = getRepoError.response || e.response;
+          (wrappedError as any).request = getRepoError.request || e.request;
+          (wrappedError as any).name = 'HttpError';
           throw wrappedError;
         }
       } else {
-        // It's a 422 error, but not the one we specifically handle for "already exists"
-        console.error(`Error creating GitHub repository ${owner}/${repoName} (422, other validation error):`, e.status, e.message, e.response?.data);
-        throw e; // Re-throw the original 422 error
+        console.error(
+          `Error creating GitHub repository ${owner}/${repoName} (422, other validation error): Status: ${e.status}, Message: ${e.message}, Response: ${JSON.stringify(e.response?.data, null, 2)}`
+        );
+        throw e;
       }
     } else {
-      // Non-422 errors
-      console.error(`Error creating GitHub repository ${owner}/${repoName} (Non-422 error):`, e.status, e.message, e.response?.data);
-      throw e; // Re-throw other errors
+      console.error(
+        `Error creating GitHub repository ${owner}/${repoName} (Non-422 error): Status: ${e.status}, Message: ${e.message}, Response: ${JSON.stringify(e.response?.data, null, 2)}`
+      );
+      throw e;
     }
   }
 }
@@ -110,7 +112,6 @@ export async function createInitialCommitWithReadme(
 ): Promise<{ commitSha: string }> {
   const readmeContent = `# ${readmeTitle}\n\nThis repository was created by HugoHost. Add your blog posts in the HugoHost dashboard.`;
 
-  // 1. Create Blob for README
   const { data: readmeBlob } = await octokit.git.createBlob({
     owner,
     repo,
@@ -118,24 +119,20 @@ export async function createInitialCommitWithReadme(
     encoding: 'utf-8',
   });
 
-  // 2. Create Tree for README
   const { data: readmeTree } = await octokit.git.createTree({
     owner,
     repo,
     tree: [{ path: 'README.md', mode: '100644', type: 'blob', sha: readmeBlob.sha }],
-    // No base_tree for the very first commit's tree
   });
 
-  // 3. Create Initial Commit
   const { data: initialCommit } = await octokit.git.createCommit({
     owner,
     repo,
     message: 'Initial commit: Add README.md',
     tree: readmeTree.sha,
-    parents: [], // No parents for the initial commit
+    parents: [],
   });
 
-  // 4. Create the branch reference
   await octokit.git.createRef({
     owner,
     repo,
@@ -161,7 +158,7 @@ export async function commitBlogPostsToRepo(
   const filesToCommit: { path: string; content: string; mode: '100644'; type: 'blob' }[] = [];
   for (const post of posts) {
     const slug = (post.title || `post-${post.id}`).toLowerCase().replace(/\s+/g, '-').replace(/[^\w-]+/g, '');
-    const filePath = `content/posts/${slug}.md`; // Assuming a Hugo structure
+    const filePath = `content/posts/${slug}.md`;
     filesToCommit.push({
       path: filePath,
       content: formatPostToMarkdown(post),
@@ -170,7 +167,6 @@ export async function commitBlogPostsToRepo(
     });
   }
 
-  // 1. Get the latest commit SHA and its tree SHA to use as a base
   const { data: latestCommitData } = await octokit.repos.getCommit({
     owner,
     repo,
@@ -179,7 +175,6 @@ export async function commitBlogPostsToRepo(
   const latestCommitSha = latestCommitData.sha;
   const baseTreeSha = latestCommitData.commit.tree.sha;
 
-  // 2. Create blobs for all blog posts
   const blobCreationPromises = filesToCommit.map(file =>
     octokit.git.createBlob({
       owner,
@@ -195,7 +190,6 @@ export async function commitBlogPostsToRepo(
   );
   const createdBlobs = await Promise.all(blobCreationPromises);
 
-  // 3. Create a new tree with the new blobs, based on the latest commit's tree
   const { data: newTree } = await octokit.git.createTree({
     owner,
     repo,
@@ -203,7 +197,6 @@ export async function commitBlogPostsToRepo(
     base_tree: baseTreeSha,
   });
 
-  // 4. Create a new commit with the new tree
   const { data: newCommit } = await octokit.git.createCommit({
     owner,
     repo,
@@ -212,7 +205,6 @@ export async function commitBlogPostsToRepo(
     parents: [latestCommitSha],
   });
 
-  // 5. Update the branch reference to point to the new commit
   await octokit.git.updateRef({
     owner,
     repo,
@@ -224,8 +216,6 @@ export async function commitBlogPostsToRepo(
   return { commitSha: newCommit.sha };
 }
 
-
-// This function remains for committing a single post, potentially for updates outside the initial creation flow.
 export async function commitPostToGitHub(
   post: BlogPost,
   owner: string,
