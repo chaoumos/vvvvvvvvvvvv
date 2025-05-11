@@ -3,7 +3,7 @@
 
 import { addBlogPost, getBlog, getApiConnection, updateBlogStatus } from "@/lib/firebase/firestore";
 import type { BlogPost, ApiConnection as UserApiConnection } from "@/lib/types";
-import { createPostSchema, type CreatePostFormValues } from "./schema";
+import { createPostSchema, type CreatePostFormValues } from "./new-post/schema"; 
 import { createCloudflarePagesProject, getCloudflarePagesProject } from "@/lib/cloudflare";
 
 interface ActionResult {
