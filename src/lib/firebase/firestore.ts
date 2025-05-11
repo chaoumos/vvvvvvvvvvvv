@@ -14,17 +14,22 @@ import {
   getDoc,
   setDoc,
 } from 'firebase/firestore';
-import { db } from './client-config';
 import type { Blog, BlogStatus, SelectedTheme, ApiConnection, BlogPost } from '../types';
-import { Octokit } from '@octokit/rest'; // Import Octokit
+import { Octokit } from '@octokit/rest'; 
+import { db } from './client-config';
+import {
+    getGitHubAuthenticatedUserLogin,
+    createGitHubRepo,
+    createInitialCommitWithReadme,
+    commitBlogPostsToRepo,
+    type GitHubRepoInfo, 
+} from '../github'; 
 
 const BLOGS_COLLECTION = 'blogs';
 const API_CONNECTIONS_COLLECTION = 'api_connections';
-const POSTS_SUBCOLLECTION = 'posts'; // For fetching posts
+const POSTS_SUBCOLLECTION = 'posts';
 
-// Helper function for delay
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
-
 
 async function getBlogPostsForBlog(blogId: string): Promise<BlogPost[]> {
   if (!db) {
@@ -34,7 +39,7 @@ async function getBlogPostsForBlog(blogId: string): Promise<BlogPost[]> {
   try {
     const postsQuery = query(
       collection(db, BLOGS_COLLECTION, blogId, POSTS_SUBCOLLECTION),
-      orderBy('createdAt', 'desc') // Or however you order them
+      orderBy('createdAt', 'desc')
     );
     const querySnapshot = await getDocs(postsQuery);
     querySnapshot.forEach(docSnapshot => {
@@ -44,7 +49,6 @@ async function getBlogPostsForBlog(blogId: string): Promise<BlogPost[]> {
         id: docSnapshot.id,
         ...data,
         createdAt: createdAtTimestamp?.toMillis ? createdAtTimestamp.toMillis() : (data.createdAt || 0),
-        // Ensure all fields from BlogPost are present
       } as BlogPost);
     });
     return posts;
@@ -54,36 +58,21 @@ async function getBlogPostsForBlog(blogId: string): Promise<BlogPost[]> {
   }
 }
 
-// Helper to format a blog post as Markdown (simplified example)
-function formatPostToMarkdown(post: BlogPost): string {
-  let content = `---
-title: "${post.title}"
-date: ${new Date(post.createdAt).toISOString()}
-draft: ${post.status === 'draft' ? 'true' : 'false'}
-`;
-  // Add other frontmatter fields from your BlogPost type as needed
-  // e.g., if (post.tags) content += `tags: [${post.tags.map(t => `"${t}"`).join(', ')}]\n`;
-  content += `---\n\n${post.contentMarkdown || post.content || ''}`;
-  return content;
-}
 
-
-export async function simulateBlogCreationProcess(blogId: string, siteName: string): Promise<void> {
+export async function simulateBlogCreationProcess(blogId: string, siteNameFromArgs: string): Promise<void> {
   if (!db) {
     const firestoreErrorMsg = "Firestore not initialized during creation simulation.";
     console.error(firestoreErrorMsg);
-    try {
-      await updateBlogStatus(blogId, 'failed', { error: firestoreErrorMsg });
-    } catch (statusUpdateError) {
-      console.error("Failed to update blog status to failed after Firestore initialization check:", statusUpdateError);
-    }
+    await updateBlogStatus(blogId, 'failed', { error: firestoreErrorMsg });
     return;
   }
 
   let blogData: Blog | undefined;
   let octokit: Octokit | undefined;
-  let owner = ''; // Will be fetched from GitHub API user endpoint
-  const repo = siteName; // GitHub repo name
+  let owner: string = '';
+  let repoNameForGithub: string = ''; 
+  let userId: string | undefined;
+  let githubRepoUrl: string | undefined;
 
   try {
     const blogDocRef = doc(db, BLOGS_COLLECTION, blogId);
@@ -94,7 +83,7 @@ export async function simulateBlogCreationProcess(blogId: string, siteName: stri
     }
 
     const rawData = blogDocSnapshot.data();
-    const userId = rawData?.userId;
+    userId = rawData?.userId;
     if (!userId) { throw new Error('User ID not found in blog document.'); }
 
     const createdAtTimestamp = rawData.createdAt as Timestamp;
@@ -103,192 +92,84 @@ export async function simulateBlogCreationProcess(blogId: string, siteName: stri
       ...rawData,
       createdAt: createdAtTimestamp?.toMillis ? createdAtTimestamp.toMillis() : (rawData.createdAt || 0),
     } as Blog;
-
+    
+    repoNameForGithub = blogData.siteName || siteNameFromArgs;
+    if (!repoNameForGithub) {
+        throw new Error('Site name for GitHub repository is missing.');
+    }
 
     await updateBlogStatus(blogId, 'creating_repo');
     console.log(`Blog ${blogId}: Status updated to creating_repo.`);
 
     const apiConnections = await getApiConnection(userId);
-    const githubApiKey = apiConnections?.githubApiKey;
-
-    if (!githubApiKey) { throw new Error('GitHub API key is missing. Please add your GitHub Personal Access Token in the API Connections settings.'); }
-
-    octokit = new Octokit({ auth: githubApiKey });
-
-    // Get authenticated user's login (owner)
-    try {
-        const { data: { login } } = await octokit.users.getAuthenticated();
-        owner = login;
-    } catch (e: any) {
-        console.error("Error fetching authenticated GitHub user:", e);
-        throw new Error(`Failed to fetch GitHub user login: ${e.message}. Check your PAT permissions.`);
+    if (!apiConnections?.githubApiKey) {
+      const errorMsg = 'GitHub API key is missing. Please add your GitHub Personal Access Token in the API Connections settings.';
+      await updateBlogStatus(blogId, 'failed', { error: errorMsg });
+      throw new Error(errorMsg);
     }
 
+    octokit = new Octokit({ auth: apiConnections.githubApiKey });
+    owner = await getGitHubAuthenticatedUserLogin(octokit);
+    console.log(`Blog ${blogId}: Authenticated GitHub user: ${owner}`);
 
-    const sanitizedDescription = (blogData.description || `A Hugo blog for ${siteName} generated by HugoHost`)
+    const sanitizedDescription = (blogData.description || `A Hugo blog for ${repoNameForGithub} generated by HugoHost`)
       .replace(/[\u0000-\u001F\u007F-\u009F]/g, ' ')
       .replace(/\s\s+/g, ' ')
       .trim();
 
-    console.log(`Blog ${blogId}: Attempting to create GitHub repo "${owner}/${repo}" with description "${sanitizedDescription}".`);
-    const repoCreateResponse = await octokit.repos.createForAuthenticatedUser({
-        name: repo,
-        description: sanitizedDescription,
-        private: false, // or true, depending on your needs
-        auto_init: false, // Set to false, we will push initial commit
-    });
+    console.log(`Blog ${blogId}: Attempting to get or create GitHub repo "${owner}/${repoNameForGithub}".`);
+    const repoDetails: GitHubRepoInfo = await createGitHubRepo(octokit, owner, repoNameForGithub, sanitizedDescription);
+    githubRepoUrl = repoDetails.html_url; // Store for later use
+    repoNameForGithub = repoDetails.name; // Use the actual name from GitHub (in case of case differences etc)
+    console.log(`Blog ${blogId}: GitHub repo ready: ${githubRepoUrl} (Default branch: ${repoDetails.default_branch})`);
+    
+    await updateBlogStatus(blogId, 'creating_repo', { githubRepoUrl, deploymentNote: `GitHub repository ${githubRepoUrl} is ready.` });
 
 
-    const githubRepoUrl = repoCreateResponse.data.html_url;
-    console.log(`Blog ${blogId}: GitHub repo created successfully: ${githubRepoUrl}`);
+    try {
+      await createInitialCommitWithReadme(octokit, owner, repoNameForGithub, blogData.name || repoNameForGithub, repoDetails.default_branch);
+      console.log(`Blog ${blogId}: Initial README.md committed to ${repoDetails.default_branch} branch.`);
+    } catch (initialCommitError: any) {
+      if (initialCommitError.status === 422 && initialCommitError.message?.toLowerCase().includes("reference already exists")) {
+        console.warn(`Blog ${blogId}: Could not create initial commit (branch ${repoDetails.default_branch} likely already exists with content): ${initialCommitError.message}. Proceeding...`);
+      } else {
+        console.error(`Blog ${blogId}: Error during initial commit: ${initialCommitError.message}`);
+        throw initialCommitError; 
+      }
+    }
+    await delay(1500);
 
-    const initialDeploymentNote = "GitHub repository created. Preparing to push initial content.";
-    await updateBlogStatus(blogId, 'configuring_theme', { githubRepoUrl, deploymentNote: initialDeploymentNote }); // Temp status
 
-    // --- START: PUSH CONTENT TO GITHUB ---
-    await updateBlogStatus(blogId, 'pushing_content_to_repo', { githubRepoUrl, deploymentNote: "Fetching blog posts from Firestore and preparing to push to GitHub..." });
+    await updateBlogStatus(blogId, 'configuring_theme', { githubRepoUrl, deploymentNote: "Pushing initial content to GitHub repository..." });
+
     console.log(`Blog ${blogId}: Fetching blog posts...`);
-
     const postsToPush = await getBlogPostsForBlog(blogId);
-    if (postsToPush.length === 0) {
-        console.log(`Blog ${blogId}: No posts found to push. Repository will remain empty for now.`);
-        // Potentially push a default README.md or Hugo site structure
-    }
 
-    const filesToCommit: { path: string; content: string; mode?: '100644' | '100755' | '040000' | '160000' | '120000', type?: 'blob' | 'tree' | 'commit' }[] = [];
-
-    // Basic Hugo structure (you'll need more for a real Hugo site)
-    filesToCommit.push({
-      path: 'config.toml', // Or .yaml, .json
-      content: `baseURL = "https://${owner}.github.io/${repo}/" # Or your Cloudflare Pages URL
-languageCode = "en-us"
-title = "${blogData.name || siteName}"
-theme = "${blogData.selectedTheme?.name || 'ananke'}" # Example, adjust based on your Blog type
-`
-    });
-    filesToCommit.push({ path: 'content/_index.md', content: `# Welcome to ${blogData.name || siteName}\n\nThis is your new Hugo blog.`});
-    filesToCommit.push({ path: 'archetypes/default.md', content: `---
-title: "{{ replace .Name "-" " " | title }}"
-date: {{ .Date }}
-draft: true
----
-`});
-    // Add .gitattributes or other essential files if needed
-    // filesToCommit.push({ path: '.gitattributes', content: `* text=auto eol=lf\n*.png binary\n*.jpg binary`});
-
-
-    for (const post of postsToPush) {
-        // Simple slugification, improve as needed
-        const slug = (post.title || `post-${post.id}`).toLowerCase().replace(/\s+/g, '-').replace(/[^\w-]+/g, '');
-        const filePath = `content/posts/${slug}.md`; // Common Hugo structure
-        filesToCommit.push({
-            path: filePath,
-            content: formatPostToMarkdown(post),
-        });
-    }
-
-    if (filesToCommit.length > 0) {
-        console.log(`Blog ${blogId}: Preparing to commit ${filesToCommit.length} files to ${owner}/${repo}.`);
-
-        // 1. Get the default branch (or create if repo is brand new and auto_init was false)
-        // For a newly created repo with auto_init: false, there's no branch yet.
-        // We will create the first commit directly on a new branch (e.g. 'main')
-        const defaultBranchName = repoCreateResponse.data.default_branch || 'main'; // GitHub is moving to 'main'
-
-        // Create blobs
-        const blobCreationPromises = filesToCommit.map(file =>
-            octokit.git.createBlob({
-                owner,
-                repo,
-                content: file.content,
-                encoding: 'utf-8',
-            }).then(response => ({
-                path: file.path,
-                sha: response.data.sha,
-                mode: file.mode || '100644', // 100644 for file, 100755 for executable, 040000 for submodule
-                type: file.type || 'blob',     // blob, tree, commit
-            }))
-        );
-        const blobs = await Promise.all(blobCreationPromises);
-
-        // Create a tree
-        const { data: tree } = await octokit.git.createTree({
-            owner,
-            repo,
-            tree: blobs.map(b => ({ path: b.path, mode: b.mode, type: b.type, sha: b.sha })),
-            // base_tree: parentCommitSha, // Omit for the very first commit
-        });
-
-        // Create a commit
-        const { data: newCommit } = await octokit.git.createCommit({
-            owner,
-            repo,
-            message: 'Initial commit: Add Hugo structure and blog posts',
-            tree: tree.sha,
-            // parents: [parentCommitSha], // Omit for the very first commit
-        });
-
-        // Update the reference (create the branch for the first commit)
-        await octokit.git.createRef({
-            owner,
-            repo,
-            ref: `refs/heads/${defaultBranchName}`,
-            sha: newCommit.sha,
-        });
-
-        console.log(`Blog ${blogId}: Content successfully pushed to ${defaultBranchName} branch. Commit SHA: ${newCommit.sha}`);
-        await updateBlogStatus(blogId, 'generating_config', { // Using existing status, adjust if needed
-            githubRepoUrl,
-            deploymentNote: `Initial content (${filesToCommit.length} files) pushed to GitHub. The repository now contains a basic Hugo structure and your posts. Ready for Cloudflare Pages to build.`
-        });
+    if (postsToPush.length > 0) {
+      console.log(`Blog ${blogId}: Preparing to commit ${postsToPush.length} blog posts to ${owner}/${repoNameForGithub}.`);
+      await commitBlogPostsToRepo(octokit, owner, repoNameForGithub, repoDetails.default_branch, postsToPush);
+      console.log(`Blog ${blogId}: ${postsToPush.length} blog posts successfully pushed.`);
+      const deploymentNote = `${postsToPush.length} blog posts and initial README.md pushed to GitHub. Ready for Cloudflare Pages.`;
+      await updateBlogStatus(blogId, 'generating_config', { githubRepoUrl, deploymentNote });
     } else {
-        // If no files to commit, we still need an initial commit for Cloudflare Pages to work.
-        // Push a README.md
-        const { data: readmeBlob } = await octokit.git.createBlob({
-            owner,
-            repo,
-            content: `# ${blogData.name || siteName}\n\nThis repository was created by HugoHost. Content will be added soon.`,
-            encoding: 'utf-8'
-        });
-        const { data: readmeTree } = await octokit.git.createTree({
-            owner,
-            repo,
-            tree: [{ path: 'README.md', mode: '100644', type: 'blob', sha: readmeBlob.sha }]
-        });
-        const { data: initialCommit } = await octokit.git.createCommit({
-            owner,
-            repo,
-            message: 'Initial commit: Add README.md',
-            tree: readmeTree.sha
-        });
-        const defaultBranchName = repoCreateResponse.data.default_branch || 'main';
-        await octokit.git.createRef({
-            owner,
-            repo,
-            ref: `refs/heads/${defaultBranchName}`,
-            sha: initialCommit.sha
-        });
-        console.log(`Blog ${blogId}: Pushed an initial README.md as no blog posts were found.`);
-        await updateBlogStatus(blogId, 'generating_config', {
-            githubRepoUrl,
-            deploymentNote: "Pushed an initial README.md to GitHub. Add posts in Firestore and re-run or trigger a build for content to appear."
-        });
+      console.log(`Blog ${blogId}: No blog posts to push. Repository contains initial README.md.`);
+      await updateBlogStatus(blogId, 'generating_config', {
+        githubRepoUrl,
+        deploymentNote: `Initial README.md pushed. Add posts and trigger a build.`,
+      });
     }
 
-    // --- END: PUSH CONTENT TO GITHUB ---
-
-    await delay(1500); // Simulate further processing if any
-
-    await updateBlogStatus(blogId, 'deploying', { githubRepoUrl, deploymentNote: "Content pushed to GitHub. If Cloudflare Pages is connected to this repository, it should start building and deploying the site." });
-    console.log(`Blog ${blogId}: Status updated to deploying. Simulating push of site files to GitHub & triggering deployment...`);
+    await delay(1500);
+    await updateBlogStatus(blogId, 'deploying', { githubRepoUrl, deploymentNote: "Content pushed. Configure Cloudflare Pages." });
+    console.log(`Blog ${blogId}: Status updated to deploying.`);
     await delay(4000);
 
-    const simulatedLiveUrl = `https://${repo.toLowerCase() /* or owner.toLowerCase() + '.github.io' if using GH pages directly, or CF pages URL */}.example-pages.dev`; // Placeholder
-    const finalDeploymentNote = `Simulation complete. GitHub repository is at ${githubRepoUrl} and now contains initial content. The live URL ${simulatedLiveUrl} is a placeholder. Configure Cloudflare Pages to point to this repository to go live.`;
+    const simulatedLiveUrl = `https://${repoNameForGithub.toLowerCase()}.example-pages.dev`; 
+    const finalDeploymentNote = `Simulation complete. GitHub repository: ${githubRepoUrl}. Live URL ${simulatedLiveUrl} is a placeholder.`;
     await updateBlogStatus(blogId, 'live', {
       githubRepoUrl,
       liveUrl: simulatedLiveUrl,
-      deploymentNote: finalDeploymentNote
+      deploymentNote: finalDeploymentNote,
     });
     console.log(`Blog ${blogId}: Status updated to live. Simulated Live URL: ${simulatedLiveUrl}`);
 
@@ -296,34 +177,38 @@ draft: true
     console.error(`Error in blog creation simulation for ${blogId}:`, error);
     let simulationErrorMessage = `Simulation process failed: ${error.message || 'Unknown error'}`;
 
-    if (error.name === 'HttpError' && error.status) { // Octokit specific error
-        simulationErrorMessage = `GitHub API Error (${error.status}): ${error.message}`;
+    if (error.name === 'HttpError' || error.status) { // Broader check for Octokit errors
+        const status = error.status || 'N/A';
+        let ghMessage = error.message; 
         if (error.response?.data?.message) {
-            simulationErrorMessage += ` - ${error.response.data.message}`;
+          ghMessage = error.response.data.message;
+        }
+        simulationErrorMessage = `GitHub API Error (${status}): ${ghMessage}.`;
+        if (error.response?.data?.documentation_url) {
+          simulationErrorMessage += ` - ${error.response.data.documentation_url}`;
         }
         if (error.response?.data?.errors) {
-            simulationErrorMessage += ` Details: ${JSON.stringify(error.response.data.errors)}`;
+           simulationErrorMessage += ` Details: ${JSON.stringify(error.response.data.errors)}`;
         }
         console.error("GitHub API Error details:", error.response?.data || error);
-    } else if (error.isAxiosError) { // If octokit uses axios internally and an error bubbles up
+    } else if (error.isAxiosError) { // Example if using Axios directly, though Octokit wraps fetch
         simulationErrorMessage = `Network error during GitHub operation: ${error.message}`;
     }
-
-
+    
     if (simulationErrorMessage.length > 1000) {
       simulationErrorMessage = simulationErrorMessage.substring(0, 997) + "...";
     }
     try {
-      await updateBlogStatus(blogId, 'failed', { error: simulationErrorMessage, githubRepoUrl: (octokit && owner && repo) ? `https://github.com/${owner}/${repo}` : undefined });
+      const repoUrlForError = githubRepoUrl || (owner && repoNameForGithub ? `https://github.com/${owner}/${repoNameForGithub}` : undefined);
+      await updateBlogStatus(blogId, 'failed', { error: simulationErrorMessage, githubRepoUrl: repoUrlForError });
       console.log(`Blog ${blogId}: Status updated to failed due to simulation process error.`);
     } catch (statusUpdateError) {
-      console.error(`Blog ${blogId}: Failed to update blog status to failed after simulation error:`, statusUpdateError);
+      console.error(`Blog ${blogId}: Failed to update blog status to failed:`, statusUpdateError);
     }
   }
 }
 
-// Make sure you also have deleteBlog, addBlog, getUserBlogs, streamUserBlogs, getBlog, updateBlogStatus
-// ... (other functions from your original code)
+
 // Add a new blog
 export async function addBlog(userId: string, blogData: Omit<Blog, 'id' | 'userId' | 'createdAt' | 'status'>): Promise<string> {
   try {
@@ -334,7 +219,8 @@ export async function addBlog(userId: string, blogData: Omit<Blog, 'id' | 'userI
       ...blogData,
       userId,
       status: 'pending' as BlogStatus,
-      createdAt: Timestamp.now(), 
+      createdAt: Timestamp.now(),
+      name: blogData.blogTitle, // ensure blogData has a name property for createInitialCommitWithReadme
     });
     return docRef.id;
   } catch (error) {
@@ -378,14 +264,14 @@ export function streamUserBlogs(
 ): Unsubscribe {
   if (!db) {
     const initError = new Error("Firestore database is not initialized. Cannot stream blogs.");
-    console.error(initError.message); 
+    console.error(initError.message);
     onError(initError);
-    return () => {}; 
+    return () => {};
   }
   const q = query(
     collection(db, BLOGS_COLLECTION),
     where('userId', '==', userId),
-    orderBy('createdAt', 'desc') 
+    orderBy('createdAt', 'desc')
   );
 
   const unsubscribe = onSnapshot(q, (querySnapshot) => {
@@ -399,15 +285,15 @@ export function streamUserBlogs(
       } as Blog;
     });
     onUpdate(blogs);
-  }, (err: any) => { 
+  }, (err: any) => {
     console.error("Error streaming user blogs from Firestore:", err);
     let errorMessage = err.message || 'An unknown error occurred while streaming blogs.';
     if (err.code === 'failed-precondition' && err.message.includes('query requires an index')) {
-        errorMessage = `Firestore query requires an index. Please create it in the Firebase console. Details: ${err.message}`;
+        errorMessage = `Firestore query requires an index. Please create it. The Firestore console should provide a link to create the missing index. Details: ${err.message}`;
     } else if (err.code === 'permission-denied') {
-        errorMessage = `Permission denied when trying to stream blogs. Check Firestore security rules. Details: ${err.message}`;
+        errorMessage = `Permission denied. Check Firestore security rules. Details: ${err.message}`;
     } else if (err.code === 'unimplemented' && err.message.includes('currently building')) {
-      errorMessage = `The required Firestore index is currently building and cannot be used yet. Please try again in a few minutes. Original error: ${err.message}`;
+      errorMessage = `The required Firestore index is building. Please wait a few minutes and try again. Details: ${err.message}`;
     }
     onError(new Error(errorMessage));
   });
@@ -421,9 +307,8 @@ export async function getBlog(blogId: string, userId: string): Promise<Blog | nu
     throw new Error("Firestore database is not initialized.");
   }
   if (!blogId || !userId) {
-    // This check is primarily for developers, UI should prevent this.
     console.error("getBlog called with missing blogId or userId.");
-    throw new Error("Blog ID and User ID are required to fetch a blog.");
+    throw new Error("Blog ID and User ID are required.");
   }
   try {
     const blogRef = doc(db, BLOGS_COLLECTION, blogId);
@@ -432,10 +317,8 @@ export async function getBlog(blogId: string, userId: string): Promise<Blog | nu
     if (docSnapshot.exists()) {
       const data = docSnapshot.data();
       if (data.userId !== userId) {
-        console.warn(`User ${userId} attempted to access blog ${blogId} owned by ${data.userId}. This should be caught by security rules.`);
-        // Depending on security model, either return null or throw specific permission error.
-        // For client-side, null is often safer to prevent information leakage.
-        return null; 
+        console.warn(`User ${userId} attempted to access blog ${blogId} owned by ${data.userId}.`);
+        return null;
       }
       const createdAtTimestamp = data.createdAt as Timestamp;
       return {
@@ -444,11 +327,10 @@ export async function getBlog(blogId: string, userId: string): Promise<Blog | nu
         createdAt: createdAtTimestamp?.toMillis ? createdAtTimestamp.toMillis() : (data.createdAt || 0),
       } as Blog;
     }
-    return null; // Blog not found
+    return null;
   } catch (error: any) {
     console.error(`Error fetching blog ${blogId}:`, error);
-    // Don't expose too much detail to the client. Log it for server-side debugging.
-    throw new Error(`Failed to fetch blog details. Please try again.`);
+    throw new Error(`Failed to fetch blog details.`);
   }
 }
 
@@ -474,51 +356,37 @@ export async function deleteBlog(blogId: string): Promise<void> {
       throw new Error("Firestore database is not initialized.");
     }
     const blogRef = doc(db, BLOGS_COLLECTION, blogId);
+    // TODO: Consider deleting subcollections like 'posts' if necessary
     await deleteDoc(blogRef);
-    // Note: This does not delete subcollections like 'posts'. 
-    // If you need to delete posts, you'd need a separate (likely Cloud Function) process.
   } catch (error) {
     console.error('Error deleting blog:', error);
     throw new Error('Failed to delete blog.');
   }
 }
 
-
-
 // Save API connections for a user
 export async function saveApiConnection(userId: string, data: Partial<Omit<ApiConnection, 'userId'>>): Promise<void> {
   try {
     if (!db) {
-      throw new Error("Firestore database is not initialized. Cannot save API connections.");
+      throw new Error("Firestore database is not initialized.");
     }
     if (!userId) {
-      throw new Error("User ID is missing. Unable to save API connections.");
+      throw new Error("User ID is missing.");
     }
     const apiConnectionRef = doc(db, API_CONNECTIONS_COLLECTION, userId);
-    
     const dataToSave: Partial<ApiConnection> = { userId };
     (Object.keys(data) as Array<keyof Omit<ApiConnection, 'userId'>>).forEach(key => {
       if (data[key] !== undefined) {
         (dataToSave as any)[key] = data[key];
       }
     });
-
     await setDoc(apiConnectionRef, dataToSave, { merge: true });
   } catch (error: any) {
-    console.error('Detailed error saving API connection to Firestore:', error); 
+    console.error('Error saving API connection:', error);
     let toastMessage = "Failed to save API connections.";
-    if (error.code === 'permission-denied') {
-        toastMessage += " Please check Firestore security rules to ensure you have write access.";
-    } else if (error.message) {
-        const detailSnippet = error.message.length > 100 ? error.message.substring(0,97) + "..." : error.message;
-        toastMessage += ` Details: ${detailSnippet}`;
-    } else {
-        toastMessage += " An unexpected issue occurred. More details logged on the server.";
-    }
-     if (toastMessage.length > 250) {
-        toastMessage = toastMessage.substring(0, 247) + "...";
-    }
-    throw new Error(toastMessage); 
+    if (error.code === 'permission-denied') toastMessage += " Check Firestore rules.";
+    else if (error.message) toastMessage += ` Details: ${error.message.substring(0,100)}`;
+    throw new Error(toastMessage.substring(0, 250));
   }
 }
 
@@ -529,7 +397,7 @@ export async function getApiConnection(userId: string): Promise<ApiConnection | 
       throw new Error("Firestore database is not initialized.");
     }
     if (!userId) {
-      throw new Error("User ID is required to get API connections.");
+      throw new Error("User ID is required.");
     }
     const apiConnectionRef = doc(db, API_CONNECTIONS_COLLECTION, userId);
     const docSnapshot = await getDoc(apiConnectionRef);
@@ -537,7 +405,7 @@ export async function getApiConnection(userId: string): Promise<ApiConnection | 
     if (docSnapshot.exists()) {
       const data = docSnapshot.data();
       return {
-        userId: data.userId, 
+        userId: data.userId,
         githubApiKey: data.githubApiKey || undefined,
         cloudflareApiToken: data.cloudflareApiToken || undefined,
         cloudflareApiKey: data.cloudflareApiKey || undefined,
@@ -548,7 +416,7 @@ export async function getApiConnection(userId: string): Promise<ApiConnection | 
     return null;
   } catch (error) {
     console.error('Error fetching API connection:', error);
-    throw new Error('Failed to fetch API connection from Firestore.');
+    throw new Error('Failed to fetch API connection.');
   }
 }
 
@@ -558,88 +426,73 @@ export async function addBlogPost(
   blogId: string,
   postData: Omit<BlogPost, 'id' | 'blogId' | 'userId' | 'createdAt' | 'updatedAt'>
 ): Promise<string> {
-  if (!db) {
-    throw new Error("Firestore database is not initialized.");
-  }
-  if (!userId || !blogId) {
-    throw new Error("User ID and Blog ID are required to add a blog post.");
-  }
+  if (!db) throw new Error("Firestore database is not initialized.");
+  if (!userId || !blogId) throw new Error("User ID and Blog ID are required.");
+
   try {
-    const blog = await getBlog(blogId, userId);
-    if (!blog) {
-      throw new Error("Blog not found or user does not have permission.");
-    }
+    const blog = await getBlog(blogId, userId); 
+    if (!blog) throw new Error("Blog not found or permission denied.");
 
     const postsCollectionRef = collection(db, BLOGS_COLLECTION, blogId, POSTS_SUBCOLLECTION);
     const docRef = await addDoc(postsCollectionRef, {
       ...postData,
-      userId, 
-      blogId, 
+      userId, // Storing userId on post document
+      blogId, // Storing blogId on post document, can be useful for direct queries
       createdAt: Timestamp.now(),
       updatedAt: Timestamp.now(),
     });
     return docRef.id;
   } catch (error) {
     console.error('Error adding blog post:', error);
-    throw new Error('Failed to add blog post to Firestore.');
+    throw new Error('Failed to add blog post.');
   }
 }
 
-// Stream blog posts for a specific blog, ensuring user owns the blog
+// Stream blog posts for a specific blog
 export function streamBlogPosts(
-  userId: string,
+  userId: string, // Used for verification, actual query might not need it if rules handle parent access
   blogId: string,
   onUpdate: (posts: BlogPost[]) => void,
   onError: (error: Error) => void
 ): Unsubscribe {
   if (!db) {
-    const initError = new Error("Firestore database is not initialized. Cannot stream blog posts.");
-    console.error(initError.message);
-    onError(initError);
+    onError(new Error("Firestore database is not initialized."));
     return () => {};
   }
   if (!userId || !blogId) {
-    const paramsError = new Error("User ID and Blog ID are required to stream posts.");
-    console.error(paramsError.message);
-    onError(paramsError);
+    onError(new Error("User ID and Blog ID are required."));
     return () => {};
   }
 
   const postsCollectionRef = collection(db, BLOGS_COLLECTION, blogId, POSTS_SUBCOLLECTION);
-  // Adding a where clause for userId on the subcollection query, if your rules allow/require it.
-  // This assumes posts in the subcollection also have a userId field.
-  const q = query(postsCollectionRef, where("userId", "==", userId), orderBy('createdAt', 'desc'));
-  // If posts don't have userId or rules are based on parent doc ownership, remove where("userId", "==", userId)
+  // The query is on a subcollection. Firestore rules on the parent 'blogs/{blogId}' document
+  // can protect this subcollection. If posts also have a 'userId' field,
+  // you could add: where("userId", "==", userId) for more granular rules,
+  // but this requires an index on `posts/userId`.
+  // For simplicity, we assume parent document rules are sufficient for read access.
+  const q = query(postsCollectionRef, orderBy('createdAt', 'desc'));
 
-  const mainUnsubscribe = onSnapshot(q, (querySnapshot) => {
-    const posts = querySnapshot.docs
-      .map(docSnapshot => {
-        const data = docSnapshot.data();
-        const createdAtTimestamp = data.createdAt as Timestamp;
-        const updatedAtTimestamp = data.updatedAt as Timestamp;
-        return {
-          id: docSnapshot.id,
-          blogId: blogId, 
-          userId: data.userId, 
-          ...data,
-          createdAt: createdAtTimestamp?.toMillis ? createdAtTimestamp.toMillis() : (data.createdAt || 0),
-          updatedAt: updatedAtTimestamp?.toMillis ? updatedAtTimestamp.toMillis() : (data.updatedAt || undefined),
-        } as BlogPost;
-      });
+  return onSnapshot(q, (querySnapshot) => {
+    const posts = querySnapshot.docs.map(docSnapshot => {
+      const data = docSnapshot.data();
+      const createdAtTimestamp = data.createdAt as Timestamp;
+      const updatedAtTimestamp = data.updatedAt as Timestamp;
+      return {
+        id: docSnapshot.id,
+        blogId: blogId, // Explicitly set blogId from param
+        userId: data.userId, // Assuming posts have userId from addBlogPost
+        ...data,
+        createdAt: createdAtTimestamp?.toMillis ? createdAtTimestamp.toMillis() : (data.createdAt || 0),
+        updatedAt: updatedAtTimestamp?.toMillis ? updatedAtTimestamp.toMillis() : (data.updatedAt || undefined),
+      } as BlogPost;
+    });
     onUpdate(posts);
   }, (err: any) => {
-    console.error(`Error streaming posts for blog ${blogId} (user ${userId}):`, err);
-    let errorMessage = err.message || 'An unknown error occurred while streaming blog posts.';
-     if (err.code === 'permission-denied') {
-        errorMessage = `Permission denied. Check Firestore rules for posts subcollection. Details: ${err.message}`;
-    } else if (err.code === 'unimplemented' && err.message.includes('currently building')) {
-        errorMessage = `Firestore index for posts is building. Try again soon. Details: ${err.message}`;
-    } else if (err.code === 'failed-precondition' && err.message.includes('query requires an index')) {
-        // This error might occur if the where("userId", "==", userId) clause is added and needs an index.
-        errorMessage = `Firestore query for posts requires an index (likely on userId and createdAt). Please create it. Details: ${err.message}`;
-    }
+    console.error(`Error streaming posts for blog ${blogId}:`, err);
+    let errorMessage = err.message || 'Unknown error streaming blog posts.';
+    if (err.code === 'permission-denied') errorMessage = `Permission denied for posts. Check Firestore rules.`;
+    else if (err.code === 'unimplemented' && err.message.includes('currently building')) errorMessage = `Firestore index for posts is building.`;
+    else if (err.code === 'failed-precondition' && err.message.includes('query requires an index')) errorMessage = `Firestore query for posts needs an index.`;
     onError(new Error(errorMessage));
   });
-
-  return mainUnsubscribe;
 }

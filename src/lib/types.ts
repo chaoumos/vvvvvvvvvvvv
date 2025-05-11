@@ -1,4 +1,5 @@
 
+
 import type { User as FirebaseUser } from 'firebase/auth';
 
 export interface UserProfile extends FirebaseUser {
@@ -12,7 +13,9 @@ export type BlogStatus =
   | "deploying" 
   | "live" 
   | "failed"
-  | "generating_config";
+  | "generating_config"
+  | "pushing_content_to_repo"; // Added new status
+
 
 export interface HugoTheme {
   id: string;
@@ -33,6 +36,7 @@ export interface SelectedTheme {
 export interface Blog {
   id: string; // Firestore document ID
   userId: string;
+  name: string; // Title of the blog, used for README title
   siteName: string; // Used for repo name, potential subdomain
   blogTitle: string;
   description: string; // For SEO
@@ -41,32 +45,39 @@ export interface Blog {
   liveUrl?: string;
   status: BlogStatus;
   createdAt: number; // Firebase Timestamp or milliseconds
-  pat?: string; // Optional: No longer directly set from create form
-  githubApiKey?: string; // Optional: No longer directly set from create form
+  pat?: string; 
+  githubApiKey?: string; 
   error?: string;
-  deploymentNote?: string; // To clarify simulation status
+  deploymentNote?: string; 
 }
 
 export interface ApiConnection {
-  userId: string; // Corresponds to the Firebase Auth UID
+  userId: string; 
   githubApiKey?: string;
-  cloudflareApiToken?: string; // For Cloudflare API Tokens (preferred)
-  cloudflareApiKey?: string; // For legacy Cloudflare Global API Key
-  cloudflareEmail?: string; // Associated with legacy Cloudflare Global API Key
+  cloudflareApiToken?: string; 
+  cloudflareApiKey?: string; 
+  cloudflareEmail?: string; 
   cloudflareAccountId?: string;
 }
 
 export interface BlogPost {
-  id: string; // Firestore document ID
-  blogId: string; // ID of the parent Blog this post belongs to
-  userId: string; // ID of the user who created the post
+  id: string; 
+  blogId: string; 
+  userId: string; 
   title: string;
-  content: string; // Markdown content
-  // slug: string; // e.g., "my-first-post" - can be derived or added later
-  createdAt: number; // Timestamp
-  updatedAt?: number; // Timestamp
-  // publishedAt?: number; // Timestamp, if implementing drafts/scheduled posts
-  // status: 'draft' | 'published'; // For draft/publish workflow
-  // tags?: string[]; // For categorization
+  content: string; 
+  contentMarkdown?: string; // Optional field if content is stored in another format too
+  status?: 'draft' | 'published'; // Added status for posts
+  // slug: string; 
+  createdAt: number; 
+  updatedAt?: number; 
+  // publishedAt?: number; 
+  // tags?: string[]; 
 }
 
+
+export interface GitHubRepoInfo { // From github.ts
+  html_url: string;
+  default_branch: string;
+  name: string;
+}
