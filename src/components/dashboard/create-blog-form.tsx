@@ -27,6 +27,7 @@ import { useRouter } from "next/navigation";
 import { predefinedThemes } from "@/lib/themes";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import Image from "next/image";
+import Link from "next/link"; // Added import for Link
 import { useAuth } from "@/hooks/use-auth";
 import { AlertCircle, GitFork, Github, Loader2, PencilLine, ScanText } from "lucide-react";
 import { Alert, AlertTitle, AlertDescription as ShadAlertDescription } from "@/components/ui/alert";
