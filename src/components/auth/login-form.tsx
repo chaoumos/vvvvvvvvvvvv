@@ -23,7 +23,7 @@ import { Eye, EyeOff, Mail } from "lucide-react";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
 
 const formSchema = z.object({
-  email: z.string().email({ message: "Invalid email address." }),
+  email: z.string().email({ message: "Invalid email address." }).optional(),
   password: z.string().min(6, { message: "Password must be at least 6 characters." }),
 });
 

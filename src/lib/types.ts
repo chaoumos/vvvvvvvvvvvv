@@ -1,5 +1,4 @@
 
-
 import type { User as FirebaseUser } from 'firebase/auth';
 
 export interface UserProfile extends FirebaseUser {
@@ -9,12 +8,13 @@ export interface UserProfile extends FirebaseUser {
 export type BlogStatus = 
   | "pending" 
   | "creating_repo" 
+  | "preparing_site_structure" // New status
+  | "generating_config"
   | "configuring_theme" 
+  | "pushing_content_to_repo" 
   | "deploying" 
   | "live" 
-  | "failed"
-  | "generating_config"
-  | "pushing_content_to_repo"; // Added new status
+  | "failed";
 
 
 export interface HugoTheme {
@@ -31,6 +31,7 @@ export interface SelectedTheme {
   name: string;
   gitUrl: string;
   isCustom: boolean;
+  id?: string; // Added id to selectedTheme to better identify predefined themes
 }
 
 export interface Blog {
@@ -66,8 +67,9 @@ export interface BlogPost {
   userId: string; 
   title: string;
   content: string; 
-  contentMarkdown?: string; // Optional field if content is stored in another format too
-  status?: 'draft' | 'published'; // Added status for posts
+  contentMarkdown?: string; 
+  status?: 'draft' | 'published'; 
+  description?: string; // Added description for frontmatter
   // slug: string; 
   createdAt: number; 
   updatedAt?: number; 
