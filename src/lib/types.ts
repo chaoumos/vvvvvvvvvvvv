@@ -55,3 +55,17 @@ export interface ApiConnection {
   cloudflareAccountId?: string;
 }
 
+export interface BlogPost {
+  id: string; // Firestore document ID
+  blogId: string; // ID of the parent Blog this post belongs to
+  userId: string; // ID of the user who created the post
+  title: string;
+  content: string; // Markdown content
+  // slug: string; // e.g., "my-first-post" - can be derived or added later
+  createdAt: number; // Timestamp
+  updatedAt?: number; // Timestamp
+  // publishedAt?: number; // Timestamp, if implementing drafts/scheduled posts
+  // status: 'draft' | 'published'; // For draft/publish workflow
+  // tags?: string[]; // For categorization
+}
+
