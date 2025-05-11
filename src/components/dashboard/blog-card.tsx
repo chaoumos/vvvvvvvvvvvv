@@ -5,7 +5,7 @@ import type { Blog, BlogStatus } from "@/lib/types";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
-import { Github, ExternalLink, AlertTriangle, RefreshCw, Trash2, Copy, Settings } from "lucide-react";
+import { Github, ExternalLink, AlertTriangle, RefreshCw, Trash2, Copy, Settings, Info } from "lucide-react";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
@@ -105,6 +105,12 @@ export function BlogCard({ blog }: BlogCardProps) {
                 <Copy className="h-3 w-3" />
               </Button>
             </div>
+          )}
+          {blog.deploymentNote && (
+            <p className="mt-2 text-xs text-muted-foreground border-l-2 border-primary/50 dark:border-primary/70 pl-2 py-1 italic rounded-r-sm bg-muted/30">
+              <Info className="inline h-3.5 w-3.5 mr-1.5 relative -top-px text-primary/80" />
+              {blog.deploymentNote}
+            </p>
           )}
           {blog.status === 'failed' && blog.error && (
             <div className="mt-2 p-2 rounded-md bg-destructive/10 text-destructive text-xs flex items-start">

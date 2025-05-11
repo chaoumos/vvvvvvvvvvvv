@@ -44,6 +44,7 @@ export interface Blog {
   pat?: string; // Optional: No longer directly set from create form
   githubApiKey?: string; // Optional: No longer directly set from create form
   error?: string;
+  deploymentNote?: string; // To clarify simulation status
 }
 
 export interface ApiConnection {
