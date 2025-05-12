@@ -1,0 +1,8 @@
+baseURL = "https://example.com"
+languageCode = "en-us"
+title = "vvvvvvvvvvv"
+theme = "ananke"
+googleAnalytics = "UA-XXXXX-Y"
+
+[params]
+  description = "vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv"
